@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108" role="img" aria-labelledby="title description">
+  <title id="title">勿追踪 / StopTrackingMe 应用图标</title>
+  <desc id="description">深蓝色圆角方形中的隐私盾牌、眼睛与红色阻断斜线。</desc>
+  <defs>
+    <linearGradient id="background" x1="12" y1="8" x2="96" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1D2A49"/>
+      <stop offset="1" stop-color="#0A1020"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="35" y1="25" x2="75" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2FFFC"/>
+      <stop offset="1" stop-color="#82EBD4"/>
+    </linearGradient>
+    <linearGradient id="block" x1="30" y1="78" x2="79" y2="29" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF4F6D"/>
+      <stop offset="1" stop-color="#FF806B"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="108" height="108" rx="24" fill="url(#background)"/>
+
+  <circle cx="18" cy="26" r="2.5" fill="#5DE2C4" opacity=".26"/>
+  <circle cx="90" cy="74" r="3.5" fill="none" stroke="#5DE2C4" stroke-width="2" opacity=".18"/>
+  <path d="M14 80c8 6 13 8 21 9M75 16c8 2 13 5 19 11" fill="none" stroke="#5DE2C4" stroke-width="2" stroke-linecap="round" opacity=".16"/>
+
+  <path d="M54 17.5c8.7 6.1 17.8 8.7 27.5 10.5v22.3c0 18.3-10.5 32.5-27.5 40.2-17-7.7-27.5-21.9-27.5-40.2V28c9.7-1.8 18.8-4.4 27.5-10.5Z" fill="url(#shield)"/>
+  <path d="M35 52.5C40.2 43.7 46.7 39 54 39s13.8 4.7 19 13.5C67.8 61.3 61.3 66 54 66s-13.8-4.7-19-13.5Z" fill="#111A30"/>
+  <circle cx="54" cy="52.5" r="7.5" fill="#65DFC4"/>
+  <circle cx="54" cy="52.5" r="3" fill="#111A30"/>
+
+  <path d="m30.5 77.5 47-47" fill="none" stroke="#F2FFFC" stroke-width="13" stroke-linecap="round"/>
+  <path d="m30.5 77.5 47-47" fill="none" stroke="url(#block)" stroke-width="8" stroke-linecap="round"/>
+</svg>
