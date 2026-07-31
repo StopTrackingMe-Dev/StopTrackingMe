@@ -216,6 +216,19 @@ class ShareAccessibilityService : AccessibilityService() {
             installed.rule.maxClickableParentDepth,
         )
         if (match == null) {
+            val scrollTarget = if (!current.scrollAttempted) {
+                AccessibilityTree.findFirstScrollableAncestor(
+                    root,
+                    installed.rule.copyLinkScrollAnchorSelectors,
+                    installed.rule.maxClickableParentDepth,
+                )
+            } else {
+                null
+            }
+            if (scrollTarget != null && AutomationRuntime.markScrollAttempt(sessionId)) {
+                ServiceStatus.update(this, "正在滚动分享渠道以查找复制链接", AutomationStage.FIND_COPY)
+                scrollTarget.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
             scheduleCopyScan(installed)
             return
         }

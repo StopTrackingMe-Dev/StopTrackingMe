@@ -16,11 +16,16 @@ object AccessibilityTree {
         selectors: List<NodeSelector>,
         maxDepth: Int,
     ): Boolean {
-        var node = source
+        val sourceNode = source ?: return false
+        for (index in 0 until sourceNode.childCount) {
+            val child = sourceNode.getChild(index) ?: continue
+            if (selectors.any { SelectorMatcher.matches(child.asView(), it) }) return true
+        }
+
+        var node = sourceNode
         repeat(maxDepth + 1) {
-            val current = node ?: return false
-            if (selectors.any { SelectorMatcher.matches(current.asView(), it) }) return true
-            node = current.parent
+            if (selectors.any { SelectorMatcher.matches(node.asView(), it) }) return true
+            node = node.parent ?: return false
         }
         return false
     }
@@ -64,6 +69,29 @@ object AccessibilityTree {
             } else {
                 false
             }
+        }
+        return match
+    }
+
+    fun findFirstScrollableAncestor(
+        root: AccessibilityNodeInfo,
+        selectors: List<NodeSelector>,
+        maxParentDepth: Int,
+    ): AccessibilityNodeInfo? {
+        var match: AccessibilityNodeInfo? = null
+        traverse(root) { node ->
+            if (selectors.any { SelectorMatcher.matches(node.asView(), it) }) {
+                var current: AccessibilityNodeInfo? = node
+                repeat(maxParentDepth + 1) {
+                    val candidate = current ?: return@repeat
+                    if (candidate.isScrollable && candidate.isEnabled) {
+                        match = candidate
+                        return@traverse true
+                    }
+                    current = candidate.parent
+                }
+            }
+            false
         }
         return match
     }

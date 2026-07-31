@@ -18,6 +18,7 @@ data class AutomationSnapshot(
     val sourcePackage: String?,
     val stage: AutomationStage,
     val deadlineMillis: Long,
+    val scrollAttempted: Boolean,
     val clickAttempted: Boolean,
 )
 
@@ -40,12 +41,26 @@ object AutomationRuntime {
             sourcePackage = sourcePackage,
             stage = AutomationStage.SHARE_TRIGGERED,
             deadlineMillis = deadlineMillis,
+            scrollAttempted = false,
             clickAttempted = false,
         )
         snapshot
     }
 
     fun current(): AutomationSnapshot = synchronized(lock) { snapshot }
+
+    /** Records the single optional search scroll before the accessibility action is invoked. */
+    fun markScrollAttempt(sessionId: String): Boolean = synchronized(lock) {
+        if (snapshot.sessionId != sessionId ||
+            snapshot.stage != AutomationStage.FIND_COPY ||
+            snapshot.scrollAttempted ||
+            snapshot.clickAttempted
+        ) {
+            return@synchronized false
+        }
+        snapshot = snapshot.copy(scrollAttempted = true)
+        true
+    }
 
     fun transition(sessionId: String, next: AutomationStage): Boolean = synchronized(lock) {
         if (snapshot.sessionId != sessionId) return@synchronized false
@@ -115,6 +130,7 @@ object AutomationRuntime {
         sourcePackage = null,
         stage = AutomationStage.IDLE,
         deadlineMillis = 0L,
+        scrollAttempted = false,
         clickAttempted = false,
     )
 }

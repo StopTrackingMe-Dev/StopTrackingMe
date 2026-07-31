@@ -59,6 +59,7 @@ class RuleParser {
             "target",
             "shareTriggerSelectors",
             "sharePanelFingerprint",
+            "copyLinkScrollAnchorSelectors",
             "copyLinkSelectors",
             "maxClickableParentDepth",
             "sharePanelTimeoutMs",
@@ -76,6 +77,12 @@ class RuleParser {
         val target = parseTarget(json.requiredObject("target"))
         val triggers = parseSelectors(json.requiredArray("shareTriggerSelectors"), "分享触发选择器")
         val fingerprint = parseSelectors(json.requiredArray("sharePanelFingerprint"), "分享面板指纹")
+        val scrollAnchors = json.get("copyLinkScrollAnchorSelectors")?.let { element ->
+            if (!element.isJsonArray) {
+                throw RuleValidationException("复制链接滚动锚点必须是数组")
+            }
+            parseSelectors(element.asJsonArray, "复制链接滚动锚点")
+        }.orEmpty()
         val copySelectors = parseSelectors(json.requiredArray("copyLinkSelectors"), "复制链接选择器")
         val maxParentDepth = json.requiredInt("maxClickableParentDepth")
         if (maxParentDepth !in 0..MAX_CLICKABLE_PARENT_DEPTH) {
@@ -98,6 +105,7 @@ class RuleParser {
             target = target,
             shareTriggerSelectors = triggers,
             sharePanelFingerprint = fingerprint,
+            copyLinkScrollAnchorSelectors = scrollAnchors,
             copyLinkSelectors = copySelectors,
             maxClickableParentDepth = maxParentDepth,
             sharePanelTimeoutMs = panelTimeout,

@@ -17,6 +17,8 @@ class AutomationRuntimeTest {
     fun happyPathUsesFixedStagesAndAllowsOnlyOneClickAttempt() {
         AutomationRuntime.start("session", "rule", "source.app", 1_000)
         assertTrue(AutomationRuntime.transition("session", AutomationStage.FIND_COPY))
+        assertTrue(AutomationRuntime.markScrollAttempt("session"))
+        assertFalse(AutomationRuntime.markScrollAttempt("session"))
         assertTrue(AutomationRuntime.markClickAttempt("session"))
         assertFalse(AutomationRuntime.markClickAttempt("session"))
         assertTrue(AutomationRuntime.transition("session", AutomationStage.CAPTURE))

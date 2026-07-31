@@ -63,6 +63,8 @@ data class AppRule(
     val shareTriggerSelectors: List<NodeSelector>,
     /** Every selector in this list must be found before fallback automation can start. */
     val sharePanelFingerprint: List<NodeSelector>,
+    /** Optional visible labels whose scrollable ancestor is advanced once to reveal copy-link. */
+    val copyLinkScrollAnchorSelectors: List<NodeSelector>,
     val copyLinkSelectors: List<NodeSelector>,
     val maxClickableParentDepth: Int,
     val sharePanelTimeoutMs: Long,
@@ -102,4 +104,3 @@ data class CleanResult(
     val isSuccess: Boolean
         get() = cleanedUrl != null && failure == null
 }
-

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.netease-cloud-music.share-clean",
+      "version": 1,
+      "displayName": "网易云音乐",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/netease-cloud-music.json"
+      },
+      "target": {
+        "packageName": "com.netease.cloudmusic",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "resourceId": "shareView"
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "textRegex": "^(分享(到|至)?|Share( to)?)$",
+          "descriptionRegex": "^(分享(到|至)?|Share( to)?)$"
+        },
+        {
+          "textRegex": "^(微信好友|WeChat)$",
+          "descriptionRegex": "^(微信好友|WeChat)$"
+        }
+      ],
+      "copyLinkScrollAnchorSelectors": [
+        {
+          "textRegex": "^(微信好友|WeChat)$",
+          "descriptionRegex": "^(微信好友|WeChat)$"
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "textRegex": "^(复制链接|複製連結|Copy Link)$",
+          "descriptionRegex": "^(复制链接|複製連結|Copy Link)$"
+        }
+      ],
+      "maxClickableParentDepth": 5,
+      "sharePanelTimeoutMs": 6000,
+      "copySettleDelayMs": 800,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [
+          "163cn.tv"
+        ],
+        "allowedFinalHosts": [
+          "music.163.com"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "userid",
+          "uid",
+          "dlt",
+          "uct2",
+          "app_version",
+          "h5_downloadvipgift",
+          "playeruimodeid",
+          "playerstyles_synchronoussharing",
+          "shareuserid",
+          "sharetoken",
+          "from",
+          "sc",
+          "tn",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_",
+          "fx-"
+        ],
+        "forceKeep": [
+          "id"
+        ]
+      }
+    }
+  ]
+}
