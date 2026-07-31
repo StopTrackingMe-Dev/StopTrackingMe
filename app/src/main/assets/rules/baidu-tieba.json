@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.baidu-tieba.share-clean",
+      "version": 1,
+      "displayName": "百度贴吧",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/baidu-tieba.json"
+      },
+      "target": {
+        "packageName": "com.baidu.tieba",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "resourceId": "obfuscated",
+          "descriptionRegex": "^$",
+          "className": "android.widget.ImageView",
+          "clickable": true
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "textRegex": "^(复制链接|複製連結|Copy Link)$",
+          "className": "android.widget.TextView"
+        },
+        {
+          "textRegex": "^(取消|Cancel)$",
+          "className": "android.widget.TextView",
+          "clickable": true
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "textRegex": "^(复制链接|複製連結|Copy Link)$",
+          "className": "android.widget.TextView"
+        }
+      ],
+      "maxClickableParentDepth": 1,
+      "sharePanelTimeoutMs": 6000,
+      "copySettleDelayMs": 800,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [],
+        "allowedFinalHosts": [
+          "tieba.baidu.com"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "share",
+          "fr",
+          "share_from",
+          "share_source",
+          "share_medium",
+          "share_plat",
+          "share_session_id",
+          "share_tag",
+          "share_id",
+          "see_lz",
+          "sfc",
+          "client_type",
+          "client_version",
+          "st",
+          "is_video",
+          "unique",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_"
+        ],
+        "forceKeep": [
+          "pn",
+          "pid"
+        ]
+      }
+    }
+  ]
+}
