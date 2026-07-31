@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.bilibili.share-clean",
+      "version": 1,
+      "displayName": "哔哩哔哩",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/bilibili.json"
+      },
+      "target": {
+        "packageName": "tv.danmaku.bili",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "resourceId": "frame_share"
+        },
+        {
+          "resourceId": "share_icon"
+        },
+        {
+          "textRegex": "^(分享|Share)$",
+          "descriptionRegex": "^(分享|Share)$"
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "textRegex": "^(分享(到|至)?|分享到|Share( to)?)$",
+          "descriptionRegex": "^(分享(到|至)?|分享到|Share( to)?)$"
+        },
+        {
+          "textRegex": "^(复制链接|复制連結|Copy Link)$",
+          "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "textRegex": "^(复制链接|复制連結|Copy Link)$",
+          "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
+        }
+      ],
+      "maxClickableParentDepth": 5,
+      "sharePanelTimeoutMs": 5000,
+      "copySettleDelayMs": 650,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [
+          "b23.tv"
+        ],
+        "allowedFinalHosts": [
+          "bilibili.com",
+          "bilibili.tv"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "spm_id_from",
+          "from_spmid",
+          "spmid",
+          "vd_source",
+          "share_source",
+          "share_from",
+          "share_medium",
+          "share_plat",
+          "share_session_id",
+          "share_tag",
+          "unique_k",
+          "bbid",
+          "buvid",
+          "launch_id",
+          "plat_id",
+          "timestamp",
+          "mid",
+          "up_id",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_"
+        ],
+        "forceKeep": [
+          "p",
+          "t"
+        ]
+      }
+    }
+  ]
+}

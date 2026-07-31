@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Stop Tracking</string>
+    <string name="accessibility_service_label">净化分享链接</string>
+    <string name="accessibility_service_description">只在具有活动规则的应用中响应用户分享操作，执行一次复制链接点击，并在用户确认后打开系统分享面板。</string>
+</resources>

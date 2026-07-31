@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.xiaohongshu.share-clean",
+      "version": 3,
+      "displayName": "小红书",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/xiaohongshu.json"
+      },
+      "target": {
+        "packageName": "com.xingin.xhs",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "resourceId": "moreOperateIV"
+        },
+        {
+          "textRegex": "^(分享|Share)$",
+          "descriptionRegex": "^(分享|Share)$"
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "textRegex": "^(分享至|分享到|Share( to)?)$",
+          "descriptionRegex": "^(分享至|分享到|Share( to)?)$"
+        },
+        {
+          "textRegex": "^(复制链接|复制連結|Copy Link)$",
+          "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "textRegex": "^(复制链接|复制連結|Copy Link)$",
+          "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
+        }
+      ],
+      "maxClickableParentDepth": 5,
+      "sharePanelTimeoutMs": 6000,
+      "copySettleDelayMs": 800,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [
+          "xhslink.cn",
+          "xhslink.com",
+          "shortlink.rnote.com"
+        ],
+        "allowedFinalHosts": [
+          "xiaohongshu.com",
+          "rednote.com"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "app_platform",
+          "ignoreEngage",
+          "app_version",
+          "share_from_user_hidden",
+          "xsec_source",
+          "author_share",
+          "xhsshare",
+          "shareRedId",
+          "apptime",
+          "share_id",
+          "share_source",
+          "share_channel",
+          "appuid",
+          "share_from",
+          "share_type",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_"
+        ],
+        "forceKeep": [
+          "xsec_token",
+          "xsec_token_original",
+          "token",
+          "sign",
+          "signature"
+        ]
+      }
+    }
+  ]
+}

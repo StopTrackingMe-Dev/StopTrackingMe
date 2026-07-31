@@ -1,0 +1,41 @@
+# Gradle and Kotlin build state
+.gradle/
+.kotlin/
+build/
+
+# Local Android SDK and IDE state
+local.properties
+.idea/
+.vscode/
+*.iml
+captures/
+
+# Native build output
+.externalNativeBuild/
+.cxx/
+
+# Packaged artifacts and profiling output
+*.apk
+*.aab
+*.ap_
+*.hprof
+
+# Signing material and local service configuration
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+google-services.json
+.env
+.env.*
+!.env.example
+
+# Local agent/runtime state
+.agents/
+.codex/
+
+# Logs and operating-system metadata
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,55 @@
+package app.stoptrackingme
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class PrivacyBoundaryTest {
+    @Test
+    fun productionKotlinHasNoTargetSpecificApplicationConstants() {
+        val text = mainSourceDirectory().walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .joinToString("\n") { it.readText() }
+
+        listOf(
+            "tv.danmaku.bili",
+            "b23.tv",
+            "frame_share",
+            "spm_id_from",
+            "vd_source",
+            "com.xingin.xhs",
+            "xhslink.cn",
+            "xhslink.com",
+            "moreOperateIV",
+            "xsec_source",
+            "shareRedId",
+        ).forEach { forbidden ->
+            assertFalse("$forbidden 应只存在于 JSON 规则中", text.contains(forbidden))
+        }
+    }
+
+    @Test
+    fun productionCodeDoesNotPersistOrLogCapturedLinks() {
+        val text = mainSourceDirectory().walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .joinToString("\n") { it.readText() }
+
+        assertFalse(text.contains("KEY_LAST_LINK"))
+        assertFalse(text.contains("Captured link"))
+        assertFalse(
+            Regex("""putString\s*\([^)]*(originalUrl|cleanedUrl|sourceText)""")
+                .containsMatchIn(text),
+        )
+        assertTrue(text.contains("ShareSessionStore"))
+    }
+
+    private fun mainSourceDirectory(): File {
+        val candidates = listOf(
+            File("src/main/java"),
+            File("app/src/main/java"),
+        )
+        return candidates.firstOrNull(File::isDirectory)
+            ?: error("找不到生产源码目录")
+    }
+}
