@@ -19,7 +19,7 @@ class AppInstrumentedTest {
     @Test
     fun builtInRulesArePackagedAndValid() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        listOf("bilibili.json", "xiaohongshu.json").forEach { name ->
+        listOf("bilibili.json", "xiaohongshu.json", "zhihu.json").forEach { name ->
             val bytes = context.assets.open("rules/$name").use { it.readBytes() }
             val rule = RuleParser().parse(bytes).rules.single()
 

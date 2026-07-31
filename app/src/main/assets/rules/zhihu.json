@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.zhihu.share-clean",
+      "version": 1,
+      "displayName": "知乎",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/zhihu.json"
+      },
+      "target": {
+        "packageName": "com.zhihu.android",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "descriptionRegex": "^(分享|Share)$",
+          "clickable": true
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "resourceId": "shareTitle",
+          "textRegex": "^(分享|Share)$"
+        },
+        {
+          "resourceId": "label",
+          "textRegex": "^(复制链接|複製連結|Copy Link)$"
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "resourceId": "label",
+          "textRegex": "^(复制链接|複製連結|Copy Link)$"
+        }
+      ],
+      "maxClickableParentDepth": 3,
+      "sharePanelTimeoutMs": 6000,
+      "copySettleDelayMs": 800,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [],
+        "allowedFinalHosts": [
+          "zhihu.com"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "share_code",
+          "share_id",
+          "share_source",
+          "share_type",
+          "invite_code",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_"
+        ],
+        "forceKeep": []
+      }
+    }
+  ]
+}
