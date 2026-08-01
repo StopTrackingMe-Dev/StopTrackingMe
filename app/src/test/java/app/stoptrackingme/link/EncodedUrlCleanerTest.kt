@@ -60,8 +60,26 @@ class EncodedUrlCleanerTest {
         val result = EncodedUrlCleaner.clean(input, policy)
 
         assertEquals(
-            "https://www.bilibili.com/video/BV18xKG6iErM?is_story_h5=false&p=1",
+            "https://www.bilibili.com/video/BV18xKG6iErM?p=1",
             result.cleanedUrl,
+        )
+    }
+
+    @Test
+    fun cleansCurrentLiveAndStoryShareParameters() {
+        val liveResult = EncodedUrlCleaner.clean(
+            "https://live.bilibili.com/31368705?broadcast_type=0&is_room_feed=1",
+            policy,
+        )
+        val storyResult = EncodedUrlCleaner.clean(
+            "https://www.bilibili.com/video/BV1jV5u6xEgj/?-Arouter=story&is_story_h5=true&p=1",
+            policy,
+        )
+
+        assertEquals("https://live.bilibili.com/31368705", liveResult.cleanedUrl)
+        assertEquals(
+            "https://www.bilibili.com/video/BV1jV5u6xEgj/?p=1",
+            storyResult.cleanedUrl,
         )
     }
 }

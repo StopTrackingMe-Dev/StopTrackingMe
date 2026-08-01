@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.bilibili.share-clean",
-      "version": 1,
+      "version": 2,
       "displayName": "哔哩哔哩",
       "source": {
         "kind": "BUILTIN",
@@ -82,6 +82,10 @@
           "timestamp",
           "mid",
           "up_id",
+          "-Arouter",
+          "broadcast_type",
+          "is_room_feed",
+          "is_story_h5",
           "gclid",
           "fbclid",
           "msclkid",
