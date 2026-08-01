@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    {
+      "id": "builtin.weibo.share-clean",
+      "version": 1,
+      "displayName": "微博",
+      "source": {
+        "kind": "BUILTIN",
+        "reference": "assets/rules/weibo.json"
+      },
+      "target": {
+        "packageName": "com.sina.weibo",
+        "minVersionCode": null,
+        "maxVersionCode": null
+      },
+      "shareTriggerSelectors": [
+        {
+          "resourceId": "detail_activity_header_right_button",
+          "descriptionRegex": "^(打开功能列表|更多|More( options)?)$",
+          "clickable": true
+        },
+        {
+          "resourceId": "right_button",
+          "descriptionRegex": "^(打开功能列表|更多|More( options)?)$",
+          "clickable": true
+        }
+      ],
+      "sharePanelFingerprint": [
+        {
+          "resourceId": "tv_dialog_header_title",
+          "textRegex": "^(分享|分享至|分享到|Share( to)?)$"
+        },
+        {
+          "resourceId": "tv_dialog_item",
+          "textRegex": "^(微信好友|朋友圈|生成长图|WeChat|Moments)$"
+        }
+      ],
+      "copyLinkScrollAnchorSelectors": [
+        {
+          "resourceId": "tv_dialog_item",
+          "textRegex": "^(生成长图|Generate Long Image)$"
+        }
+      ],
+      "copyLinkSelectors": [
+        {
+          "resourceId": "tv_dialog_item",
+          "textRegex": "^(复制链接|複製連結|Copy Link)$"
+        }
+      ],
+      "maxClickableParentDepth": 5,
+      "sharePanelTimeoutMs": 6000,
+      "copySettleDelayMs": 800,
+      "clipboardExtraction": {
+        "urlRegex": "https?://[^\\s<>\"'，。！？；;（）()《》【】]+",
+        "maxInputLength": 16384
+      },
+      "redirectPolicy": {
+        "shortLinkHosts": [],
+        "allowedFinalHosts": [
+          "weibo.com",
+          "weibo.cn"
+        ],
+        "maxRedirects": 5,
+        "requireHttps": true,
+        "connectTimeoutMs": 5000,
+        "readTimeoutMs": 5000
+      },
+      "cleaningPolicy": {
+        "removeExact": [
+          "refer_flag",
+          "share_source",
+          "share_from",
+          "share_menu",
+          "sourcetype",
+          "jumpfrom",
+          "featurecode",
+          "luicode",
+          "lfid",
+          "sudaref",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "mc_cid",
+          "mc_eid"
+        ],
+        "removePrefixes": [
+          "utm_"
+        ],
+        "forceKeep": [
+          "mid"
+        ]
+      }
+    }
+  ]
+}
