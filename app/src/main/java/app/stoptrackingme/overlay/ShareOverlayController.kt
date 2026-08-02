@@ -24,6 +24,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 enum class ShareOverlayAction {
+    START_COPY,
     SYSTEM_SHARE,
     WECHAT_FRIEND,
     WECHAT_TIMELINE,
@@ -63,9 +64,40 @@ class ShareOverlayController(
             result = null,
             previewReady = false,
             forceExpanded = false,
+            awaitingCopyConfirmation = false,
         )
         draggedBubblePosition = null
         draggedCardPosition = null
+        userCollapsed = false
+        return render()
+    }
+
+    fun showCopyConfirmation(sessionId: String, sourceName: String): Boolean {
+        model = OverlayModel(
+            sessionId = sessionId,
+            title = "$sourceName · 按需净化",
+            status = "点击悬浮按钮后才会复制并净化链接",
+            result = null,
+            previewReady = false,
+            forceExpanded = false,
+            awaitingCopyConfirmation = true,
+        )
+        draggedBubblePosition = null
+        draggedCardPosition = null
+        userCollapsed = true
+        return render()
+    }
+
+    fun beginConfirmedCopy(sessionId: String): Boolean {
+        val current = model?.takeIf {
+            it.sessionId == sessionId && it.awaitingCopyConfirmation
+        } ?: return false
+        model = current.copy(
+            title = "正在净化分享链接",
+            status = "正在定位“复制链接”…",
+            forceExpanded = false,
+            awaitingCopyConfirmation = false,
+        )
         userCollapsed = false
         return render()
     }
@@ -88,7 +120,8 @@ class ShareOverlayController(
             status = status,
             result = result,
             previewReady = previewReady,
-            forceExpanded = false,
+            forceExpanded = !keepCollapsed,
+            awaitingCopyConfirmation = false,
         )
         userCollapsed = keepCollapsed
         return render()
@@ -108,14 +141,19 @@ class ShareOverlayController(
         detectedPanelTop: Int?,
         clickableBounds: List<Rect>,
     ) {
-        sourceBounds = sourceWindowBounds?.takeUnless(Rect::isEmpty)?.toIntRect()
-        panelTop = detectedPanelTop
-        avoidBounds = clickableBounds.asSequence()
+        val nextSourceBounds = sourceWindowBounds?.takeUnless(Rect::isEmpty)?.toIntRect()
+        val nextAvoidBounds = clickableBounds.asSequence()
             .filterNot(Rect::isEmpty)
             .map { it.toIntRect() }
             .distinct()
             .toList()
-        if (attachedView != null) render()
+        val changed = sourceBounds != nextSourceBounds ||
+            panelTop != detectedPanelTop ||
+            avoidBounds != nextAvoidBounds
+        sourceBounds = nextSourceBounds
+        panelTop = detectedPanelTop
+        avoidBounds = nextAvoidBounds
+        if (changed && attachedView != null) render()
     }
 
     fun hide(sessionId: String): Boolean {
@@ -303,11 +341,15 @@ class ShareOverlayController(
             setColor(if (current.result?.isSuccess == false) Color.rgb(180, 55, 55) else Color.rgb(32, 105, 215))
             setStroke(dp(2), Color.WHITE)
         }
-        contentDescription = if (current.result == null) "正在净化链接" else "打开净化结果"
+        contentDescription = when {
+            current.awaitingCopyConfirmation -> "点击后复制并净化分享链接"
+            current.result == null -> "正在净化链接"
+            else -> "打开净化结果"
+        }
         isClickable = true
         isFocusable = true
         addView(TextView(context).apply {
-            text = if (current.result == null) "…" else "净"
+            text = if (current.result == null && !current.awaitingCopyConfirmation) "…" else "净"
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, if (current.result == null) 22f else 18f)
@@ -321,9 +363,14 @@ class ShareOverlayController(
         var startY = 0
         var moved = false
         view.setOnClickListener {
-            model = model?.copy(forceExpanded = true)
-            userCollapsed = false
-            render()
+            val active = model ?: return@setOnClickListener
+            if (active.awaitingCopyConfirmation) {
+                action(active.sessionId, ShareOverlayAction.START_COPY)
+            } else {
+                model = model?.copy(forceExpanded = true)
+                userCollapsed = false
+                render()
+            }
         }
         view.setOnTouchListener { _, event ->
             val params = attachedParams
@@ -612,6 +659,7 @@ class ShareOverlayController(
         val result: CleanResult?,
         val previewReady: Boolean,
         val forceExpanded: Boolean,
+        val awaitingCopyConfirmation: Boolean,
     )
 
     private data class DisplayGeometry(

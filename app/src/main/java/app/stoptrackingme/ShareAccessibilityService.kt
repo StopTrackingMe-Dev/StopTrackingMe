@@ -35,6 +35,8 @@ import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.preview.SharePreviewLoader
 import app.stoptrackingme.preview.WebSharePreview
 import app.stoptrackingme.rules.ActiveRuleResolution
+import app.stoptrackingme.rules.CopyTriggerMode
+import app.stoptrackingme.rules.CopyTriggerPreferences
 import app.stoptrackingme.rules.InstalledRule
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSessionStore
@@ -45,13 +47,19 @@ class ShareAccessibilityService : AccessibilityService() {
     private lateinit var rules: RuleRepository
     private val fallbackPanelLatch = HashSet<String>()
     private val scheduledScanSessions = HashSet<String>()
+    private var awaitingPanelSeenSessionId: String? = null
     private var launchBridgeView: View? = null
+    private var clipboardFocusBridgeView: View? = null
+    private var clipboardFocusBridgeSessionId: String? = null
+    private var clipboardFocusReadStarted = false
     private lateinit var overlayController: ShareOverlayController
     private var overlayPreview: WebSharePreview? = null
     private var overlayPreviewSessionId: String? = null
     private var previewWorker: Thread? = null
     private var pendingWeChat: PendingWeChat? = null
     private var weChatTimeout: Runnable? = null
+    private var pendingResultPageSessionId: String? = null
+    private var resultPageLaunchTimeout: Runnable? = null
     private val overlayEventListener = ShareOverlayEventListener(::onOverlayEvent)
     private val overlayActionListener = ShareOverlayActionListener(::onOverlayAction)
 
@@ -59,6 +67,9 @@ class ShareAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         rules = RuleRepository.get(this)
         rules.reload()
+        awaitingPanelSeenSessionId = null
+        cancelResultPageLaunch()
+        removeClipboardFocusBridge()
         cancelOverlayWorkers()
         if (::overlayController.isInitialized) overlayController.remove()
         overlayController = ShareOverlayController(this, overlayActionListener)
@@ -135,6 +146,7 @@ class ShareAccessibilityService : AccessibilityService() {
             return
         }
         if (AutomationRuntime.cancelIfSwitchedTo(eventPackage, packageName)) {
+            awaitingPanelSeenSessionId = null
             overlayController.remove()
             ShareSessionStore.clear()
             ServiceStatus.update(
@@ -178,6 +190,12 @@ class ShareAccessibilityService : AccessibilityService() {
         ) {
             val current = AutomationRuntime.current()
             if (current.sourcePackage == eventPackage &&
+                current.stage == AutomationStage.AWAIT_COPY_CONFIRMATION
+            ) {
+                observeAwaitingCopyPanel(installed)
+                return
+            }
+            if (current.sourcePackage == eventPackage &&
                 current.stage in setOf(AutomationStage.SHARE_TRIGGERED, AutomationStage.FIND_COPY)
             ) {
                 tryClickCopyLink(installed)
@@ -198,7 +216,9 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        removeLaunchBridge()
+        awaitingPanelSeenSessionId = null
+        cancelResultPageLaunch()
+        removeClipboardFocusBridge()
         val sessionId = AutomationRuntime.current().sessionId
         cancelOverlayWorkers()
         if (::overlayController.isInitialized) overlayController.remove(sessionId)
@@ -209,7 +229,9 @@ class ShareAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        removeLaunchBridge()
+        awaitingPanelSeenSessionId = null
+        cancelResultPageLaunch()
+        removeClipboardFocusBridge()
         cancelOverlayWorkers()
         ShareOverlayCoordinator.detach(overlayEventListener)
         if (::overlayController.isInitialized) overlayController.remove()
@@ -223,11 +245,17 @@ class ShareAccessibilityService : AccessibilityService() {
 
     private fun beginTask(installed: InstalledRule, fallback: Boolean = false) {
         val oldSessionId = AutomationRuntime.current().sessionId
+        val awaitCopyConfirmation = shouldAwaitCopyConfirmation(installed)
         val sessionId = ShareSessionStore.begin(
             ruleKey = installed.key,
             sourcePackage = installed.rule.target.packageName,
         )
-        val deadline = System.currentTimeMillis() + installed.rule.sharePanelTimeoutMs
+        val taskTimeoutMs = if (awaitCopyConfirmation) {
+            maxOf(installed.rule.sharePanelTimeoutMs, USER_CONFIRMATION_TIMEOUT_MS)
+        } else {
+            installed.rule.sharePanelTimeoutMs
+        }
+        val deadline = System.currentTimeMillis() + taskTimeoutMs
         val started = AutomationRuntime.start(
             sessionId = sessionId,
             ruleKey = installed.key,
@@ -239,32 +267,130 @@ class ShareAccessibilityService : AccessibilityService() {
             return
         }
         fallbackPanelLatch += installed.rule.target.packageName
+        awaitingPanelSeenSessionId = if (awaitCopyConfirmation && fallback) sessionId else null
         if (oldSessionId != null) {
             cancelOverlayWorkers()
             if (::overlayController.isInitialized) overlayController.remove(oldSessionId)
             ShareSessionStore.clear(oldSessionId)
         }
-        if (ResultPresentationPreferences.get(this) ==
+        if (awaitCopyConfirmation) {
+            if (!AutomationRuntime.transition(
+                    sessionId,
+                    AutomationStage.AWAIT_COPY_CONFIRMATION,
+                ) ||
+                !overlayController.showCopyConfirmation(
+                    sessionId,
+                    installed.rule.displayName,
+                )
+            ) {
+                cancelTask(sessionId, "未能显示按需净化悬浮入口")
+                return
+            }
+        } else if (ResultPresentationPreferences.get(this) ==
             ResultPresentationMode.ACCESSIBILITY_OVERLAY
         ) {
             overlayController.showProgress(sessionId)
         }
         ServiceStatus.update(
             this,
-            if (fallback) {
+            if (awaitCopyConfirmation) {
+                "分享面板已打开；点击悬浮按钮后才会复制链接"
+            } else if (fallback) {
                 "已确认完整分享面板指纹，正在查找复制链接"
             } else {
                 "已捕获分享点击，正在查找复制链接"
             },
-            AutomationStage.SHARE_TRIGGERED,
+            if (awaitCopyConfirmation) {
+                AutomationStage.AWAIT_COPY_CONFIRMATION
+            } else {
+                AutomationStage.SHARE_TRIGGERED
+            },
         )
-        scheduleCopyScan(installed, INITIAL_SCAN_DELAY_MS)
+        if (awaitCopyConfirmation && fallback) observeAwaitingCopyPanel(installed)
+        if (!awaitCopyConfirmation) scheduleCopyScan(installed, INITIAL_SCAN_DELAY_MS)
         handler.postDelayed({
             val current = AutomationRuntime.current()
             if (current.sessionId == sessionId && AutomationRuntime.isExpired(System.currentTimeMillis())) {
-                cancelTask(sessionId, "查找复制链接超时，本次自动化已终止")
+                cancelTask(
+                    sessionId,
+                    if (current.stage == AutomationStage.AWAIT_COPY_CONFIRMATION) {
+                        "等待用户点击悬浮按钮超时，本次自动化已结束"
+                    } else {
+                        "查找复制链接超时，本次自动化已终止"
+                    },
+                )
             }
-        }, installed.rule.sharePanelTimeoutMs + 50L)
+        }, taskTimeoutMs + 50L)
+    }
+
+    private fun shouldAwaitCopyConfirmation(installed: InstalledRule): Boolean =
+        ResultPresentationPreferences.get(this) == ResultPresentationMode.ACCESSIBILITY_OVERLAY &&
+            CopyTriggerPreferences.get(this, installed) == CopyTriggerMode.USER_CONFIRMATION
+
+    private fun observeAwaitingCopyPanel(installed: InstalledRule) {
+        val current = AutomationRuntime.current()
+        val sessionId = current.sessionId ?: return
+        if (current.stage != AutomationStage.AWAIT_COPY_CONFIRMATION ||
+            current.ruleKey != installed.key
+        ) {
+            return
+        }
+        val root = rootInActiveWindow ?: return
+        if (root.packageName?.toString() != current.sourcePackage) return
+        updateOverlayGeometry(root, installed)
+        if (AccessibilityTree.hasCompleteFingerprint(
+                root,
+                installed.rule.sharePanelFingerprint,
+            )
+        ) {
+            awaitingPanelSeenSessionId = sessionId
+        } else if (awaitingPanelSeenSessionId == sessionId) {
+            fallbackPanelLatch.remove(installed.rule.target.packageName)
+            cancelTask(sessionId, "分享面板已关闭，未执行复制链接")
+        }
+    }
+
+    private fun confirmDeferredCopy(sessionId: String) {
+        val current = AutomationRuntime.current()
+        if (current.sessionId != sessionId ||
+            current.stage != AutomationStage.AWAIT_COPY_CONFIRMATION
+        ) {
+            return
+        }
+        val session = ShareSessionStore.get(sessionId) ?: return
+        val installed = rules.findInstalledRule(session.ruleKey) ?: return
+        val root = rootInActiveWindow
+        if (root?.packageName?.toString() != current.sourcePackage) {
+            cancelTask(sessionId, "已离开来源应用，未执行复制链接")
+            return
+        }
+        if (!AccessibilityTree.hasCompleteFingerprint(
+                root,
+                installed.rule.sharePanelFingerprint,
+            )
+        ) {
+            if (awaitingPanelSeenSessionId == sessionId) {
+                cancelTask(sessionId, "分享面板已关闭，未执行复制链接")
+            } else {
+                overlayController.updateStatus(sessionId, "分享面板尚未准备好，请稍后再点")
+                ServiceStatus.update(
+                    this,
+                    "分享面板尚未准备好，仍在等待用户确认",
+                    AutomationStage.AWAIT_COPY_CONFIRMATION,
+                )
+            }
+            return
+        }
+        if (!AutomationRuntime.transition(sessionId, AutomationStage.FIND_COPY) ||
+            !overlayController.beginConfirmedCopy(sessionId)
+        ) {
+            cancelTask(sessionId, "无法开始按需净化")
+            return
+        }
+        awaitingPanelSeenSessionId = null
+        updateOverlayGeometry(root, installed)
+        ServiceStatus.update(this, "用户已确认，正在查找复制链接", AutomationStage.FIND_COPY)
+        scheduleCopyScan(installed, delayMillis = 0L)
     }
 
     private fun tryClickCopyLink(installed: InstalledRule) {
@@ -315,7 +441,16 @@ class ShareAccessibilityService : AccessibilityService() {
             if (scrollTarget != null && AutomationRuntime.markScrollAttempt(sessionId)) {
                 overlayController.updateStatus(sessionId, "正在展开分享渠道…")
                 ServiceStatus.update(this, "正在滚动分享渠道以查找复制链接", AutomationStage.FIND_COPY)
-                scrollTarget.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                val scrolled = scrollTowardCopyLink(scrollTarget)
+                if (isDebugBuild) Log.i(TAG, "Copy-link channel scroll performed=$scrolled")
+                overlayController.updateStatus(
+                    sessionId,
+                    if (scrolled) {
+                        "已滑动分享渠道，正在继续查找“复制链接”…"
+                    } else {
+                        "分享渠道暂时无法滑动，正在继续查找…"
+                    },
+                )
             }
             scheduleCopyScan(installed)
             return
@@ -342,15 +477,216 @@ class ShareAccessibilityService : AccessibilityService() {
         handler.postDelayed({
             if (!AutomationRuntime.transition(sessionId, AutomationStage.CAPTURE)) return@postDelayed
             overlayController.updateStatus(sessionId, "正在读取并解析复制内容…")
-            ServiceStatus.update(this, "正在前台读取本次复制内容", AutomationStage.CAPTURE)
-            launchClipboardCapture(sessionId)
+            ServiceStatus.update(this, "正在读取本次复制内容", AutomationStage.CAPTURE)
+            captureClipboard(sessionId)
         }, installed.rule.copySettleDelayMs)
     }
 
+    private fun scrollTowardCopyLink(node: AccessibilityNodeInfo): Boolean {
+        val supportedActionIds = node.actionList.mapTo(HashSet()) { it.id }
+        val directionalActions = listOf(
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT,
+            AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN,
+        )
+        directionalActions.forEach { action ->
+            if (action.id in supportedActionIds && node.performAction(action.id)) return true
+        }
+        return node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+    }
+
+    private fun captureClipboard(sessionId: String) {
+        if (ResultPresentationPreferences.get(this).usesClipboardFocusBridge) {
+            captureClipboardWithFocusBridge(sessionId)
+        } else {
+            launchClipboardCapture(sessionId)
+        }
+    }
+
     /**
-     * EMUI may reject an activity launch from a bound accessibility-service process unless that
-     * UID currently owns a visible window. A tiny, non-touchable accessibility overlay provides
-     * that launch identity without requesting the broad "display over other apps" permission.
+     * A focusable accessibility overlay can make this UID eligible for clipboard access without
+     * starting an Activity. The one-pixel window never receives touch input and is removed as
+     * soon as the copied value has been captured, leaving the source share Activity resumed.
+     */
+    private fun captureClipboardWithFocusBridge(sessionId: String) {
+        if (!attachClipboardFocusBridge(sessionId)) {
+            publishClipboardFocusFailure(
+                sessionId,
+                "系统未能创建无干扰剪贴板读取窗口；分享页已保持打开",
+            )
+            return
+        }
+        handler.postDelayed({
+            val current = AutomationRuntime.current()
+            if (clipboardFocusBridgeSessionId == sessionId &&
+                !clipboardFocusReadStarted &&
+                current.sessionId == sessionId &&
+                current.stage == AutomationStage.CAPTURE
+            ) {
+                publishClipboardFocusFailure(
+                    sessionId,
+                    "系统未授予悬浮窗剪贴板焦点；分享页已保持打开",
+                )
+            }
+        }, CLIPBOARD_FOCUS_WATCHDOG_MS)
+    }
+
+    private fun attachClipboardFocusBridge(sessionId: String): Boolean {
+        removeClipboardFocusBridge()
+        val view = View(this).apply {
+            setBackgroundColor(Color.BLACK)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        view.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
+            // EMUI 12 crashes ViewRootImpl if this callback removes its own window synchronously.
+            // Defer all clipboard work so the framework can finish dispatching the focus change.
+            if (hasFocus) handler.post { beginClipboardFocusRead(sessionId, view) }
+        }
+        val params = WindowManager.LayoutParams(
+            CLIPBOARD_FOCUS_BRIDGE_SIZE_PX,
+            CLIPBOARD_FOCUS_BRIDGE_SIZE_PX,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = CLIPBOARD_FOCUS_BRIDGE_ALPHA
+            title = "StopTrackingClipboardFocusBridge"
+        }
+        clipboardFocusBridgeView = view
+        clipboardFocusBridgeSessionId = sessionId
+        clipboardFocusReadStarted = false
+        return try {
+            (getSystemService(WINDOW_SERVICE) as WindowManager).addView(view, params)
+            view.post { if (clipboardFocusBridgeView === view) view.requestFocus() }
+            if (isDebugBuild) Log.i(TAG, "Clipboard focus bridge attached")
+            true
+        } catch (error: RuntimeException) {
+            clipboardFocusBridgeView = null
+            clipboardFocusBridgeSessionId = null
+            if (isDebugBuild) Log.w(TAG, "Unable to attach clipboard focus bridge", error)
+            false
+        }
+    }
+
+    private fun beginClipboardFocusRead(sessionId: String, view: View) {
+        if (clipboardFocusBridgeView !== view ||
+            clipboardFocusBridgeSessionId != sessionId ||
+            clipboardFocusReadStarted
+        ) {
+            return
+        }
+        val current = AutomationRuntime.current()
+        if (current.sessionId != sessionId || current.stage != AutomationStage.CAPTURE) {
+            removeClipboardFocusBridge()
+            return
+        }
+        clipboardFocusReadStarted = true
+        if (isDebugBuild) Log.i(TAG, "Clipboard focus bridge gained window focus")
+        readClipboardFromFocusBridge(sessionId, view, attempt = 1)
+    }
+
+    private fun readClipboardFromFocusBridge(sessionId: String, view: View, attempt: Int) {
+        val current = AutomationRuntime.current()
+        if (clipboardFocusBridgeView !== view ||
+            clipboardFocusBridgeSessionId != sessionId ||
+            current.sessionId != sessionId ||
+            current.stage != AutomationStage.CAPTURE
+        ) {
+            return
+        }
+        val value = if (view.hasWindowFocus()) {
+            runCatching {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+                } else {
+                    ""
+                }
+            }.onFailure { error ->
+                if (isDebugBuild) Log.w(TAG, "Clipboard focus bridge read failed", error)
+            }.getOrDefault("")
+        } else {
+            ""
+        }
+        if (value.isNotBlank()) {
+            if (isDebugBuild) Log.i(TAG, "Clipboard focus bridge read succeeded")
+            removeClipboardFocusBridge()
+            CapturedShareProcessor.process(
+                context = this,
+                sessionId = sessionId,
+                value = value,
+                onResultReady = { presentCapturedOverlayResult(sessionId) },
+                onAborted = { abortCapturedShareProcessing(sessionId) },
+            )
+        } else if (attempt < CLIPBOARD_READ_MAX_ATTEMPTS) {
+            handler.postDelayed(
+                { readClipboardFromFocusBridge(sessionId, view, attempt + 1) },
+                CLIPBOARD_READ_RETRY_MS,
+            )
+        } else {
+            publishClipboardFocusFailure(
+                sessionId,
+                "系统未允许悬浮窗读取剪贴板；分享页已保持打开",
+            )
+        }
+    }
+
+    private fun publishClipboardFocusFailure(sessionId: String, message: String) {
+        if (clipboardFocusBridgeSessionId != null &&
+            clipboardFocusBridgeSessionId != sessionId
+        ) {
+            return
+        }
+        removeClipboardFocusBridge()
+        val current = AutomationRuntime.current()
+        if (current.sessionId != sessionId || current.stage != AutomationStage.CAPTURE) return
+        CapturedShareProcessor.publishClipboardFailure(
+            context = this,
+            sessionId = sessionId,
+            message = message,
+            onResultReady = { presentCapturedOverlayResult(sessionId) },
+            onAborted = { abortCapturedShareProcessing(sessionId) },
+        )
+    }
+
+    private fun presentCapturedOverlayResult(sessionId: String) {
+        if (!presentOverlayResult(sessionId)) {
+            ServiceStatus.update(
+                this,
+                "悬浮窗显示失败；分享页已保持打开，请重新分享",
+                AutomationStage.SHOW_RESULT,
+            )
+        }
+    }
+
+    private fun abortCapturedShareProcessing(sessionId: String) {
+        val current = AutomationRuntime.current()
+        if (current.sessionId == sessionId) {
+            cancelTask(sessionId, "复制内容处理已终止")
+        }
+    }
+
+    private fun removeClipboardFocusBridge() {
+        val view = clipboardFocusBridgeView ?: return
+        clipboardFocusBridgeView = null
+        clipboardFocusBridgeSessionId = null
+        clipboardFocusReadStarted = false
+        runCatching {
+            (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view)
+        }.onFailure { error ->
+            if (isDebugBuild) Log.w(TAG, "Unable to remove clipboard focus bridge", error)
+        }
+    }
+
+    /**
+     * APP_PAGE mode still needs a foreground Activity. EMUI may reject that launch unless this
+     * UID first owns a visible accessibility window, so retain the non-focusable launch bridge.
      */
     private fun launchClipboardCapture(sessionId: String) {
         val bridgeAttached = attachLaunchBridge()
@@ -487,6 +823,7 @@ class ShareAccessibilityService : AccessibilityService() {
 
     private fun onOverlayEvent(event: ShareOverlayEvent): Boolean = when (event) {
         is ShareOverlayEvent.ResultReady -> presentOverlayResult(event.sessionId)
+        is ShareOverlayEvent.ResultPageOpened -> handleResultPageOpened(event.sessionId)
         is ShareOverlayEvent.WeChatFinished -> handleWeChatFinished(event)
     }
 
@@ -568,6 +905,7 @@ class ShareAccessibilityService : AccessibilityService() {
     private fun onOverlayAction(sessionId: String, action: ShareOverlayAction) {
         if (overlayController.activeSessionId != sessionId) return
         when (action) {
+            ShareOverlayAction.START_COPY -> confirmDeferredCopy(sessionId)
             ShareOverlayAction.SYSTEM_SHARE -> openOverlaySystemShare(sessionId)
             ShareOverlayAction.WECHAT_FRIEND -> openOverlayWeChat(
                 sessionId,
@@ -686,15 +1024,46 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun openFullResult(sessionId: String) {
-        overlayController.hide(sessionId)
-        val launchError = runCatching { launchResultPage(sessionId) }.exceptionOrNull()
-        if (launchError != null) {
-            if (isDebugBuild) Log.w(TAG, "Unable to open full result", launchError)
-            overlayController.restore(sessionId, "完整结果页打开失败")
-        } else {
-            cancelOverlayWorkers()
-            overlayController.remove(sessionId)
+        if (pendingResultPageSessionId != null ||
+            overlayController.activeSessionId != sessionId ||
+            ShareSessionStore.get(sessionId)?.result == null
+        ) {
+            return
         }
+        pendingResultPageSessionId = sessionId
+        overlayController.updateStatus(sessionId, "正在打开完整结果页…")
+        val launchDelay = if (attachLaunchBridge()) LAUNCH_BRIDGE_SETTLE_MS else 0L
+        val timeout = Runnable {
+            if (pendingResultPageSessionId != sessionId) return@Runnable
+            cancelResultPageLaunch(sessionId)
+            overlayController.updateStatus(sessionId, "系统未允许打开完整结果页，请重试")
+            ServiceStatus.update(this, "完整结果页未能打开，净化结果仍在悬浮窗中", AutomationStage.SHOW_RESULT)
+        }
+        resultPageLaunchTimeout = timeout
+        handler.postDelayed(timeout, launchDelay + RESULT_PAGE_LAUNCH_TIMEOUT_MS)
+        handler.postDelayed({
+            if (pendingResultPageSessionId != sessionId) return@postDelayed
+            val launchError = runCatching { launchResultPage(sessionId) }.exceptionOrNull()
+            if (launchError != null) {
+                if (isDebugBuild) Log.w(TAG, "Unable to open full result", launchError)
+                cancelResultPageLaunch(sessionId)
+                overlayController.updateStatus(sessionId, "完整结果页打开失败，请重试")
+                ServiceStatus.update(
+                    this,
+                    "完整结果页打开失败，净化结果仍在悬浮窗中",
+                    AutomationStage.SHOW_RESULT,
+                )
+            }
+        }, launchDelay)
+    }
+
+    private fun handleResultPageOpened(sessionId: String): Boolean {
+        if (pendingResultPageSessionId != sessionId) return false
+        cancelResultPageLaunch(sessionId)
+        cancelOverlayWorkers()
+        overlayController.remove(sessionId)
+        ServiceStatus.update(this, "已打开完整净化结果页", AutomationStage.SHOW_RESULT)
+        return true
     }
 
     private fun launchResultPage(sessionId: String) {
@@ -705,8 +1074,19 @@ class ShareAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun cancelResultPageLaunch(sessionId: String? = null) {
+        if (sessionId != null && pendingResultPageSessionId != sessionId) return
+        resultPageLaunchTimeout?.let(handler::removeCallbacks)
+        resultPageLaunchTimeout = null
+        pendingResultPageSessionId = null
+        removeLaunchBridge()
+    }
+
     private fun finishOverlaySession(sessionId: String, message: String) {
         if (sessionId.isBlank()) return
+        if (awaitingPanelSeenSessionId == sessionId) awaitingPanelSeenSessionId = null
+        cancelResultPageLaunch(sessionId)
+        removeClipboardFocusBridge()
         cancelOverlayWorkers()
         overlayController.remove(sessionId)
         scheduledScanSessions.remove(sessionId)
@@ -726,6 +1106,9 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun cancelTask(sessionId: String, message: String) {
+        if (awaitingPanelSeenSessionId == sessionId) awaitingPanelSeenSessionId = null
+        cancelResultPageLaunch(sessionId)
+        removeClipboardFocusBridge()
         scheduledScanSessions.remove(sessionId)
         cancelOverlayWorkers()
         overlayController.remove(sessionId)
@@ -751,6 +1134,13 @@ class ShareAccessibilityService : AccessibilityService() {
         private const val LAUNCH_BRIDGE_SETTLE_MS = 100L
         private const val LAUNCH_BRIDGE_LIFETIME_MS = 1_500L
         private const val CAPTURE_LAUNCH_WATCHDOG_MS = 2_500L
+        private const val CLIPBOARD_FOCUS_BRIDGE_SIZE_PX = 1
+        private const val CLIPBOARD_FOCUS_BRIDGE_ALPHA = 0.01f
+        private const val CLIPBOARD_FOCUS_WATCHDOG_MS = 1_500L
+        private const val CLIPBOARD_READ_MAX_ATTEMPTS = 6
+        private const val CLIPBOARD_READ_RETRY_MS = 200L
+        private const val USER_CONFIRMATION_TIMEOUT_MS = 30_000L
+        private const val RESULT_PAGE_LAUNCH_TIMEOUT_MS = 2_500L
         private const val WECHAT_CALLBACK_TIMEOUT_MS = 120_000L
         private val EVENT_INDEPENDENT_STAGES = setOf(
             AutomationStage.CLICK_ONCE,

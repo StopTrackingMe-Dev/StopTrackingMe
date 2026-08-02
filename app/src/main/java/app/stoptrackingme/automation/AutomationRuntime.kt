@@ -3,6 +3,7 @@ package app.stoptrackingme.automation
 enum class AutomationStage {
     IDLE,
     SHARE_TRIGGERED,
+    AWAIT_COPY_CONFIRMATION,
     FIND_COPY,
     CLICK_ONCE,
     CAPTURE,
@@ -87,7 +88,11 @@ object AutomationRuntime {
     }
 
     fun isExpired(nowMillis: Long): Boolean = synchronized(lock) {
-        snapshot.stage in setOf(AutomationStage.SHARE_TRIGGERED, AutomationStage.FIND_COPY) &&
+        snapshot.stage in setOf(
+            AutomationStage.SHARE_TRIGGERED,
+            AutomationStage.AWAIT_COPY_CONFIRMATION,
+            AutomationStage.FIND_COPY,
+        ) &&
             nowMillis > snapshot.deadlineMillis
     }
 
@@ -100,6 +105,7 @@ object AutomationRuntime {
         // legitimately become the event source while the copied value settles. No more node
         // actions are possible in those stages, so keep the session alive for foreground capture.
         if (snapshot.stage != AutomationStage.SHARE_TRIGGERED &&
+            snapshot.stage != AutomationStage.AWAIT_COPY_CONFIRMATION &&
             snapshot.stage != AutomationStage.FIND_COPY
         ) {
             return@synchronized false
@@ -116,7 +122,11 @@ object AutomationRuntime {
 
     private fun allowedNext(stage: AutomationStage): Set<AutomationStage> = when (stage) {
         AutomationStage.IDLE -> setOf(AutomationStage.SHARE_TRIGGERED)
-        AutomationStage.SHARE_TRIGGERED -> setOf(AutomationStage.FIND_COPY)
+        AutomationStage.SHARE_TRIGGERED -> setOf(
+            AutomationStage.AWAIT_COPY_CONFIRMATION,
+            AutomationStage.FIND_COPY,
+        )
+        AutomationStage.AWAIT_COPY_CONFIRMATION -> setOf(AutomationStage.FIND_COPY)
         AutomationStage.FIND_COPY -> setOf(AutomationStage.CLICK_ONCE)
         AutomationStage.CLICK_ONCE -> setOf(AutomationStage.CAPTURE)
         AutomationStage.CAPTURE -> setOf(AutomationStage.EXTRACT)

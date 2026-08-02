@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.xiaohongshu.share-clean",
-      "version": 4,
+      "version": 5,
       "displayName": "小红书",
       "source": {
         "kind": "BUILTIN",
@@ -39,6 +39,7 @@
           "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
         }
       ],
+      "copyTriggerMode": "USER_CONFIRMATION",
       "maxClickableParentDepth": 5,
       "sharePanelTimeoutMs": 6000,
       "copySettleDelayMs": 800,

@@ -25,4 +25,10 @@ class ResultPresentationModeTest {
         assertTrue(ResultPresentationMode.APP_PAGE.opensResultActivityAutomatically)
         assertFalse(ResultPresentationMode.ACCESSIBILITY_OVERLAY.opensResultActivityAutomatically)
     }
+
+    @Test
+    fun `only overlay mode uses clipboard focus bridge`() {
+        assertFalse(ResultPresentationMode.APP_PAGE.usesClipboardFocusBridge)
+        assertTrue(ResultPresentationMode.ACCESSIBILITY_OVERLAY.usesClipboardFocusBridge)
+    }
 }

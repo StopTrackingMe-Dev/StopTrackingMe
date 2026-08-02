@@ -39,6 +39,11 @@ data class ClipboardExtractionRule(
     val maxInputLength: Int,
 )
 
+enum class CopyTriggerMode {
+    AUTOMATIC,
+    USER_CONFIRMATION,
+}
+
 data class RedirectPolicy(
     val shortLinkHosts: Set<String>,
     val allowedFinalHosts: Set<String>,
@@ -84,6 +89,7 @@ data class AppRule(
     /** Optional visible labels whose scrollable ancestor is advanced once to reveal copy-link. */
     val copyLinkScrollAnchorSelectors: List<NodeSelector>,
     val copyLinkSelectors: List<NodeSelector>,
+    val copyTriggerMode: CopyTriggerMode,
     val maxClickableParentDepth: Int,
     val sharePanelTimeoutMs: Long,
     val copySettleDelayMs: Long,

@@ -61,6 +61,7 @@ class RuleParser {
             "sharePanelFingerprint",
             "copyLinkScrollAnchorSelectors",
             "copyLinkSelectors",
+            "copyTriggerMode",
             "maxClickableParentDepth",
             "sharePanelTimeoutMs",
             "copySettleDelayMs",
@@ -85,6 +86,13 @@ class RuleParser {
             parseSelectors(element.asJsonArray, "复制链接滚动锚点")
         }.orEmpty()
         val copySelectors = parseSelectors(json.requiredArray("copyLinkSelectors"), "复制链接选择器")
+        val copyTriggerMode = json.optionalString("copyTriggerMode")?.let { value ->
+            try {
+                CopyTriggerMode.valueOf(value.uppercase(Locale.ROOT))
+            } catch (error: IllegalArgumentException) {
+                throw RuleValidationException("复制触发模式无效", error)
+            }
+        } ?: CopyTriggerMode.AUTOMATIC
         val maxParentDepth = json.requiredInt("maxClickableParentDepth")
         if (maxParentDepth !in 0..MAX_CLICKABLE_PARENT_DEPTH) {
             throw RuleValidationException("最大可点击父节点深度超出限制")
@@ -108,6 +116,7 @@ class RuleParser {
             sharePanelFingerprint = fingerprint,
             copyLinkScrollAnchorSelectors = scrollAnchors,
             copyLinkSelectors = copySelectors,
+            copyTriggerMode = copyTriggerMode,
             maxClickableParentDepth = maxParentDepth,
             sharePanelTimeoutMs = panelTimeout,
             copySettleDelayMs = settleDelay,

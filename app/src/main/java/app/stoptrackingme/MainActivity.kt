@@ -43,8 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.stoptrackingme.automation.AutomationRuntime
-import app.stoptrackingme.rules.InstalledRule
 import app.stoptrackingme.rules.ActiveRuleResolution
+import app.stoptrackingme.rules.CopyTriggerMode
+import app.stoptrackingme.rules.CopyTriggerPreferences
+import app.stoptrackingme.rules.InstalledRule
 import app.stoptrackingme.rules.RemoteRulePreview
 import app.stoptrackingme.rules.RuleCatalog
 import app.stoptrackingme.rules.RuleRepository
@@ -68,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var catalog by mutableStateOf(RuleCatalog(emptyList(), emptyList(), emptyList()))
+    private var copyTriggerModes by mutableStateOf<Map<String, CopyTriggerMode>>(emptyMap())
     private var remoteUrl by mutableStateOf("")
     private var operationMessage by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
@@ -99,7 +102,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = RuleRepository.get(this)
-        catalog = repository.reload()
+        reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
@@ -139,10 +142,23 @@ class MainActivity : ComponentActivity() {
                             catalog = catalog,
                             compatibleRules = repository::compatibleInstalledRules,
                             resolution = repository::resolveActiveRule,
+                            copyTriggerMode = { installed ->
+                                copyTriggerModes[installed.key] ?: installed.rule.copyTriggerMode
+                            },
                             onSelectRule = { packageName, key ->
                                 repository.chooseActiveRule(packageName, key)
-                                catalog = repository.reload()
+                                reloadCatalog()
                                 operationMessage = "已选择唯一活动规则"
+                            },
+                            onCopyTriggerModeChange = { installed, mode ->
+                                CopyTriggerPreferences.set(this@MainActivity, installed, mode)
+                                copyTriggerModes = copyTriggerModes + (installed.key to mode)
+                                operationMessage = when (mode) {
+                                    CopyTriggerMode.AUTOMATIC ->
+                                        "${installed.rule.displayName} 将自动复制并净化链接"
+                                    CopyTriggerMode.USER_CONFIRMATION ->
+                                        "${installed.rule.displayName} 将等待你点击悬浮按钮后再复制"
+                                }
                             },
                         )
 
@@ -260,7 +276,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        catalog = repository.reload()
+        reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         refreshState()
     }
@@ -268,6 +284,14 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         unregisterReceiver(stateReceiver)
         super.onStop()
+    }
+
+    private fun reloadCatalog() {
+        val reloaded = repository.reload()
+        catalog = reloaded
+        copyTriggerModes = reloaded.installedRules.associate { installed ->
+            installed.key to CopyTriggerPreferences.get(this, installed)
+        }
     }
 
     private fun refreshState() {
@@ -632,7 +656,9 @@ private fun RuleCatalogSection(
     catalog: RuleCatalog,
     compatibleRules: (String) -> List<InstalledRule>,
     resolution: (String) -> ActiveRuleResolution,
+    copyTriggerMode: (InstalledRule) -> CopyTriggerMode,
     onSelectRule: (String, String) -> Unit,
+    onCopyTriggerModeChange: (InstalledRule, CopyTriggerMode) -> Unit,
 ) {
     Text("已安装规则", style = MaterialTheme.typography.titleLarge)
     if (catalog.installedRules.isEmpty()) {
@@ -673,7 +699,11 @@ private fun RuleCatalogSection(
                         selected = activeResolution is ActiveRuleResolution.Active &&
                             activeResolution.installed.key == installed.key,
                         compatible = isCompatible,
+                        copyTriggerMode = copyTriggerMode(installed),
                         onClick = { onSelectRule(packageName, installed.key) },
+                        onCopyTriggerModeChange = { mode ->
+                            onCopyTriggerModeChange(installed, mode)
+                        },
                     )
                 }
             }
@@ -687,14 +717,16 @@ private fun RuleChoice(
     showChoice: Boolean,
     selected: Boolean,
     compatible: Boolean,
+    copyTriggerMode: CopyTriggerMode,
     onClick: () -> Unit,
+    onCopyTriggerModeChange: (CopyTriggerMode) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showChoice) RadioButton(selected = selected, onClick = onClick, enabled = compatible)
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text("${installed.rule.displayName} · v${installed.rule.version}")
             Text(
                 buildString {
@@ -710,7 +742,47 @@ private fun RuleChoice(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "悬浮窗复制方式",
+                modifier = Modifier.padding(top = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+            )
+            CopyTriggerChoice(
+                selected = copyTriggerMode == CopyTriggerMode.AUTOMATIC,
+                label = "自动复制并净化",
+                enabled = compatible,
+                onClick = { onCopyTriggerModeChange(CopyTriggerMode.AUTOMATIC) },
+            )
+            CopyTriggerChoice(
+                selected = copyTriggerMode == CopyTriggerMode.USER_CONFIRMATION,
+                label = "点击悬浮按钮后复制",
+                enabled = compatible,
+                onClick = { onCopyTriggerModeChange(CopyTriggerMode.USER_CONFIRMATION) },
+            )
         }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun CopyTriggerChoice(
+    selected: Boolean,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
+        Text(
+            label,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
 

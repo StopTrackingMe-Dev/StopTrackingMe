@@ -3,6 +3,8 @@ package app.stoptrackingme.overlay
 sealed interface ShareOverlayEvent {
     data class ResultReady(val sessionId: String) : ShareOverlayEvent
 
+    data class ResultPageOpened(val sessionId: String) : ShareOverlayEvent
+
     data class WeChatFinished(
         val transaction: String?,
         val outcome: WeChatOutcome,

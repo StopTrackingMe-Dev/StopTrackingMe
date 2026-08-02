@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.bilibili.share-clean",
-      "version": 3,
+      "version": 5,
       "displayName": "哔哩哔哩",
       "source": {
         "kind": "BUILTIN",
@@ -32,8 +32,14 @@
           "descriptionRegex": "^(分享(到|至)?|分享到|Share( to)?)$"
         },
         {
-          "textRegex": "^(复制链接|复制連結|Copy Link)$",
-          "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
+          "resourceId": "recycler",
+          "className": "androidx.recyclerview.widget.RecyclerView"
+        }
+      ],
+      "copyLinkScrollAnchorSelectors": [
+        {
+          "resourceId": "recycler",
+          "className": "androidx.recyclerview.widget.RecyclerView"
         }
       ],
       "copyLinkSelectors": [
@@ -42,6 +48,7 @@
           "descriptionRegex": "^(复制链接|复制連結|Copy Link)$"
         }
       ],
+      "copyTriggerMode": "USER_CONFIRMATION",
       "maxClickableParentDepth": 5,
       "sharePanelTimeoutMs": 5000,
       "copySettleDelayMs": 650,

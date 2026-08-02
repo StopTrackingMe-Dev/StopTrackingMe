@@ -44,6 +44,8 @@ import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.ShareTextBuilder
 import app.stoptrackingme.network.NetworkResolutionException
+import app.stoptrackingme.overlay.ShareOverlayCoordinator
+import app.stoptrackingme.overlay.ShareOverlayEvent
 import app.stoptrackingme.preview.PreviewHttpException
 import app.stoptrackingme.preview.PreviewResourceTooLargeException
 import app.stoptrackingme.preview.SharePreviewLoader
@@ -77,6 +79,7 @@ class ResultActivity : ComponentActivity() {
         enableEdgeToEdge()
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
         session = ShareSessionStore.get(sessionId)
+        ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultPageOpened(sessionId))
 
         setContent {
             StopTrackingTheme {

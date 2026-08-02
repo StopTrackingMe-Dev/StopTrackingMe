@@ -29,6 +29,20 @@ class AutomationRuntimeTest {
     }
 
     @Test
+    fun deferredCopyRequiresConfirmationBeforeSearching() {
+        AutomationRuntime.start("session", "rule", "source.app", 1_000)
+
+        assertTrue(
+            AutomationRuntime.transition(
+                "session",
+                AutomationStage.AWAIT_COPY_CONFIRMATION,
+            ),
+        )
+        assertTrue(AutomationRuntime.transition("session", AutomationStage.FIND_COPY))
+        assertTrue(AutomationRuntime.markClickAttempt("session"))
+    }
+
+    @Test
     fun illegalTransitionIsRejected() {
         AutomationRuntime.start("session", "rule", "source.app", 1_000)
 

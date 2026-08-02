@@ -11,6 +11,9 @@ enum class ResultPresentationMode {
     val opensResultActivityAutomatically: Boolean
         get() = this == APP_PAGE
 
+    val usesClipboardFocusBridge: Boolean
+        get() = this == ACCESSIBILITY_OVERLAY
+
     companion object {
         fun fromStored(value: String?): ResultPresentationMode =
             entries.firstOrNull { it.name == value } ?: APP_PAGE

@@ -1,6 +1,7 @@
 package app.stoptrackingme.link
 
 import app.stoptrackingme.TestFixtures
+import app.stoptrackingme.rules.CopyTriggerMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,7 +19,8 @@ class XiaohongshuRuleTest {
                     SafeRegexProbe.matches(it.descriptionRegex, "复制链接")
             },
         )
-        assertEquals(4, rule.version)
+        assertEquals(5, rule.version)
+        assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertTrue("xhslink.cn" in rule.redirectPolicy.shortLinkHosts)
         assertTrue("xhslink.com" in rule.redirectPolicy.shortLinkHosts)
         assertTrue(rule.redirectPolicy.requireHttps)

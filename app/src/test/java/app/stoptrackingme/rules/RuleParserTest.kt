@@ -21,6 +21,7 @@ class RuleParserTest {
         assertEquals(RuleSourceKind.BUILTIN, rule.source.kind)
         assertTrue(rule.shareTriggerSelectors.isNotEmpty())
         assertTrue(rule.sharePanelFingerprint.size >= 2)
+        assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertEquals(5, rule.redirectPolicy.maxRedirects)
         assertTrue(rule.sharePreview?.titleSelectors?.isNotEmpty() == true)
         assertTrue("hdslb.com" in rule.sharePreview.orEmptyImageHosts())
@@ -88,6 +89,25 @@ class RuleParserTest {
                 .getAsJsonObject("sharePreview")
             preview.getAsJsonArray("titleSelectors")[0].asJsonObject
                 .addProperty("type", "CSS_SELECTOR")
+        }
+
+        assertThrows(RuleValidationException::class.java) {
+            parser.parse(bytes)
+        }
+    }
+
+    @Test
+    fun missingCopyTriggerModeKeepsAutomaticBehavior() {
+        val rule = parser.parse(TestFixtures.builtInRuleBytes("netease-cloud-music")).rules.single()
+
+        assertEquals(CopyTriggerMode.AUTOMATIC, rule.copyTriggerMode)
+    }
+
+    @Test
+    fun rejectsUnsupportedCopyTriggerMode() {
+        val bytes = mutate { root ->
+            root.getAsJsonArray("rules")[0].asJsonObject
+                .addProperty("copyTriggerMode", "RUN_SCRIPT")
         }
 
         assertThrows(RuleValidationException::class.java) {

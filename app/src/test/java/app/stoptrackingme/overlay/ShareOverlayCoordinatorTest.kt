@@ -26,6 +26,21 @@ class ShareOverlayCoordinatorTest {
     }
 
     @Test
+    fun `result page open event is delivered to the attached listener`() {
+        val listener = ShareOverlayEventListener { event ->
+            event == ShareOverlayEvent.ResultPageOpened("session")
+        }
+        ShareOverlayCoordinator.attach(listener)
+        try {
+            assertTrue(
+                ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultPageOpened("session")),
+            )
+        } finally {
+            ShareOverlayCoordinator.detach(listener)
+        }
+    }
+
+    @Test
     fun `wechat callback policy completes or restores only matching transaction`() {
         assertEquals(
             OverlayCompletionAction.COMPLETE,
