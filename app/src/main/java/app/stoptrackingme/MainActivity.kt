@@ -1,11 +1,14 @@
 package app.stoptrackingme
 
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.role.RoleManager
 import android.content.BroadcastReceiver
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
@@ -39,12 +42,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.rules.InstalledRule
 import app.stoptrackingme.rules.ActiveRuleResolution
 import app.stoptrackingme.rules.RemoteRulePreview
 import app.stoptrackingme.rules.RuleCatalog
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.rules.RuleSourceKind
+import app.stoptrackingme.link.LinkProcessor
+import app.stoptrackingme.link.UrlRuleCandidate
+import app.stoptrackingme.link.UrlRuleMatcher
+import app.stoptrackingme.link.UrlRuleResolution
+import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,10 +69,24 @@ class MainActivity : ComponentActivity() {
     private var operationMessage by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
     private var remotePreview by mutableStateOf<RemoteRulePreview?>(null)
+    private var pendingLinkInput by mutableStateOf<PendingLinkInput?>(null)
+    private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
+    private var autoReadClipboardOnFocus = false
 
     private val importRuleDocument =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) importLocalRule(uri)
+        }
+
+    private val requestBrowserRole =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            operationMessage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_BROWSER)
+            ) {
+                "已设为默认网页处理应用"
+            } else {
+                "未更改默认网页处理应用；仍可在“打开方式”中选择本应用"
+            }
         }
 
     private val stateReceiver = object : BroadcastReceiver() {
@@ -74,6 +97,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = RuleRepository.get(this)
         catalog = repository.reload()
+        autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
@@ -86,7 +110,13 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         Text("净链分享助手", style = MaterialTheme.typography.headlineMedium)
-                        Text("只对已安装且唯一活动的规则执行一次“复制链接”点击；分享前始终由你确认。")
+                        Text("可从剪贴板、网页链接或无障碍分享操作中净化链接；打开或分享前始终由你确认。")
+
+                        ManualEntryCard(
+                            enabled = !busy,
+                            onReadClipboard = ::readClipboard,
+                            onRequestBrowserRole = ::requestDefaultBrowserRole,
+                        )
 
                         ServiceCard(
                             enabled = serviceEnabled,
@@ -163,7 +193,49 @@ class MainActivity : ComponentActivity() {
                         onConfirm = { trustSubscription(preview) },
                     )
                 }
+
+                pendingLinkInput?.let { pending ->
+                    RuleChoiceDialog(
+                        pending = pending,
+                        onDismiss = { pendingLinkInput = null },
+                        onSelect = { candidate ->
+                            pendingLinkInput = null
+                            processLink(pending.sourceText, pending.sourcePackage, candidate)
+                        },
+                    )
+                }
+                pendingUnsupportedUrl?.let { url ->
+                    UnsupportedLinkDialog(
+                        host = displayHost(url),
+                        onDismiss = { pendingUnsupportedUrl = null },
+                        onOpenOriginal = {
+                            pendingUnsupportedUrl = null
+                            openExternalLink(url)
+                        },
+                    )
+                }
             }
+        }
+        handleViewIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Intent.ACTION_MAIN) {
+            autoReadClipboardOnFocus = true
+            if (hasWindowFocus()) readClipboard(reportMissing = false)
+        } else {
+            autoReadClipboardOnFocus = false
+            handleViewIntent(intent)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && autoReadClipboardOnFocus) {
+            autoReadClipboardOnFocus = false
+            readClipboard(reportMissing = false)
         }
     }
 
@@ -196,6 +268,130 @@ class MainActivity : ComponentActivity() {
         serviceState = getSharedPreferences(ServiceStatus.PREFERENCES, MODE_PRIVATE)
             .getString(ServiceStatus.KEY_MESSAGE, "尚未收到服务状态")
             .orEmpty()
+    }
+
+    private fun readClipboard(reportMissing: Boolean = true) {
+        autoReadClipboardOnFocus = false
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip
+        val value = if (clip != null && clip.itemCount > 0) {
+            clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+        } else {
+            ""
+        }
+        resolveLinkInput(value, SOURCE_CLIPBOARD, reportMissing)
+    }
+
+    private fun handleViewIntent(incoming: Intent) {
+        if (incoming.action != Intent.ACTION_VIEW) return
+        val uri = incoming.data ?: return
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            operationMessage = "仅支持 HTTP/HTTPS 网页链接"
+            return
+        }
+        resolveLinkInput(uri.toString(), SOURCE_WEB_INTENT)
+    }
+
+    private fun resolveLinkInput(
+        sourceText: String,
+        sourcePackage: String,
+        reportMissing: Boolean = true,
+    ) {
+        operationMessage = null
+        when (val resolution = UrlRuleMatcher.resolve(sourceText, repository.currentCatalog().installedRules)) {
+            UrlRuleResolution.EmptyInput -> if (reportMissing) operationMessage = "剪贴板为空"
+            UrlRuleResolution.InputTooLarge -> if (reportMissing) {
+                operationMessage = "输入内容超过规则允许的安全长度"
+            }
+            UrlRuleResolution.UrlNotFound -> if (reportMissing) {
+                operationMessage = "没有找到 HTTP/HTTPS 链接"
+            }
+            is UrlRuleResolution.Unsupported -> {
+                operationMessage = "没有支持 ${displayHost(resolution.url)} 的净化规则"
+                pendingUnsupportedUrl = resolution.url
+            }
+            is UrlRuleResolution.Active -> {
+                processLink(sourceText, sourcePackage, resolution.candidate)
+            }
+            is UrlRuleResolution.Conflict -> {
+                pendingLinkInput = PendingLinkInput(sourceText, sourcePackage, resolution.candidates)
+            }
+        }
+    }
+
+    private fun processLink(
+        sourceText: String,
+        sourcePackage: String,
+        candidate: UrlRuleCandidate,
+    ) {
+        if (busy) {
+            operationMessage = "已有链接正在处理，请稍候"
+            return
+        }
+        busy = true
+        operationMessage = "正在使用${candidate.installed.rule.displayName}规则处理链接"
+        AutomationRuntime.current().sessionId?.let { activeAutomationSession ->
+            AutomationRuntime.reset(activeAutomationSession)
+            ShareSessionStore.clear(activeAutomationSession)
+        }
+        val sessionId = ShareSessionStore.begin(candidate.installed.key, sourcePackage)
+        ShareSessionStore.putSourceText(sessionId, sourceText)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val outcome = runCatching {
+                LinkProcessor().process(sourceText, candidate.installed.rule)
+            }
+            withContext(Dispatchers.Main) {
+                busy = false
+                outcome.fold(
+                    onSuccess = { result ->
+                        if (ShareSessionStore.putResult(sessionId, result)) {
+                            startActivity(
+                                Intent(this@MainActivity, ResultActivity::class.java)
+                                    .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId),
+                            )
+                        }
+                    },
+                    onFailure = {
+                        ShareSessionStore.clear(sessionId)
+                        operationMessage = "链接处理失败：${displayError(it)}"
+                    },
+                )
+            }
+        }
+    }
+
+    private fun requestDefaultBrowserRole() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(RoleManager::class.java)
+            if (!roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+                operationMessage = "当前系统不提供默认浏览器角色"
+            } else if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
+                operationMessage = "本应用已经是默认网页处理应用"
+            } else {
+                requestBrowserRole.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
+            }
+        } else {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            }.onFailure {
+                operationMessage = "请在系统设置的默认应用中选择本应用"
+            }
+        }
+    }
+
+    private fun openExternalLink(url: String) {
+        val chooser = ExternalLinkIntentFactory.createChooser(
+            context = this,
+            url = url,
+            title = "使用其他应用打开原链接",
+        )
+        if (chooser == null) {
+            operationMessage = "没有找到其他可以打开此链接的应用"
+            return
+        }
+        runCatching { startActivity(chooser) }
+            .onFailure { operationMessage = "系统无法打开此链接" }
     }
 
     private fun importLocalRule(uri: Uri) {
@@ -270,6 +466,99 @@ class MainActivity : ComponentActivity() {
 
     private fun displayError(error: Throwable): String =
         error.message?.take(180)?.replace(Regex("""https?://\S+"""), "[URL]") ?: "未知错误"
+
+    private fun displayHost(url: String): String =
+        runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "该域名" }
+
+    companion object {
+        private const val SOURCE_CLIPBOARD = "manual.clipboard"
+        private const val SOURCE_WEB_INTENT = "manual.web-intent"
+    }
+}
+
+private data class PendingLinkInput(
+    val sourceText: String,
+    val sourcePackage: String,
+    val candidates: List<UrlRuleCandidate>,
+)
+
+@androidx.compose.runtime.Composable
+private fun ManualEntryCard(
+    enabled: Boolean,
+    onReadClipboard: () -> Unit,
+    onRequestBrowserRole: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("无需无障碍权限", style = MaterialTheme.typography.titleMedium)
+            Text("手动读取剪贴板，或将本应用选为网页链接的打开方式。")
+            Button(
+                onClick = onReadClipboard,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("解析剪贴板链接")
+            }
+            OutlinedButton(
+                onClick = onRequestBrowserRole,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("设为默认网页处理应用")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun RuleChoiceDialog(
+    pending: PendingLinkInput,
+    onDismiss: () -> Unit,
+    onSelect: (UrlRuleCandidate) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择净化规则") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("多条规则支持这个链接，请明确选择本次使用的规则。")
+                pending.candidates.forEach { candidate ->
+                    OutlinedButton(
+                        onClick = { onSelect(candidate) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(candidate.installed.rule.displayName)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@androidx.compose.runtime.Composable
+private fun UnsupportedLinkDialog(
+    host: String,
+    onDismiss: () -> Unit,
+    onOpenOriginal: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("没有匹配的净化规则") },
+        text = { Text("没有支持 $host 的规则。原链接不会被修改，你可以明确选择交给其他应用打开。") },
+        confirmButton = {
+            Button(onClick = onOpenOriginal) { Text("打开原链接") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
 }
 
 @androidx.compose.runtime.Composable

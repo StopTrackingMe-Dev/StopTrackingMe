@@ -1,5 +1,6 @@
 package app.stoptrackingme
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -48,6 +49,7 @@ class ResultActivity : ComponentActivity() {
     private var session by mutableStateOf<ShareSession?>(null)
     private var preserveOriginalText by mutableStateOf(false)
     private var retrying by mutableStateOf(false)
+    private var openMessage by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +81,9 @@ class ResultActivity : ComponentActivity() {
                                 onPreserveChange = { preserveOriginalText = it },
                                 onRetry = ::retry,
                                 onShare = ::openSystemShare,
+                                onOpen = ::openCleanedLink,
                                 onClose = ::finish,
+                                openMessage = openMessage,
                             )
                         }
                     }
@@ -126,6 +130,24 @@ class ResultActivity : ComponentActivity() {
         startActivity(ShareIntentFactory.createChooser(shareText))
     }
 
+    private fun openCleanedLink() {
+        val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
+        val chooser = ExternalLinkIntentFactory.createChooser(
+            context = this,
+            url = cleanedUrl,
+            title = "使用其他应用打开",
+        )
+        if (chooser == null) {
+            openMessage = "没有找到其他可以打开此链接的应用；你仍可复制或分享净化链接。"
+            return
+        }
+        try {
+            startActivity(chooser)
+        } catch (_: ActivityNotFoundException) {
+            openMessage = "系统无法打开此链接；你仍可复制或分享净化链接。"
+        }
+    }
+
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
     }
@@ -139,7 +161,9 @@ private fun ResultContent(
     onPreserveChange: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onShare: () -> Unit,
+    onOpen: () -> Unit,
     onClose: () -> Unit,
+    openMessage: String?,
 ) {
     result.originalUrl?.let { UrlCard("原始 URL", it) }
     result.expandedUrl?.let { UrlCard("展开后的 URL", it) }
@@ -198,11 +222,20 @@ private fun ResultContent(
             onClick = { onPreserveChange(true) },
         )
         Button(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("使用其他应用打开净化链接")
+        }
+        Button(
             onClick = onShare,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("系统分享")
         }
+    }
+    openMessage?.let {
+        Text(it, color = MaterialTheme.colorScheme.error)
     }
     Spacer(Modifier.height(4.dp))
     OutlinedButton(
