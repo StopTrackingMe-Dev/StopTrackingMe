@@ -16,6 +16,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.Locale
@@ -52,6 +53,14 @@ internal fun interface PreviewResourceClient {
     fun fetch(request: PreviewFetchRequest): PreviewResource
 }
 
+internal class PreviewResourceTooLargeException(
+    val maxBytes: Int,
+) : IOException("预览资源超过大小限制：$maxBytes 字节")
+
+internal class PreviewHttpException(
+    val statusCode: Int,
+) : IOException("预览资源返回 HTTP $statusCode")
+
 internal class SafePreviewResourceClient(
     private val networkGuard: PublicNetworkGuard = PublicNetworkGuard(),
 ) : PreviewResourceClient {
@@ -77,9 +86,11 @@ internal class SafePreviewResourceClient(
                     current = current.resolve(location)
                     return@repeat
                 }
-                if (status !in 200..299) error("预览资源返回 HTTP $status")
+                if (status !in 200..299) throw PreviewHttpException(status)
                 val contentLength = connection.contentLengthLong
-                if (contentLength > request.maxBytes) error("预览资源超过大小限制")
+                if (contentLength > request.maxBytes) {
+                    throw PreviewResourceTooLargeException(request.maxBytes)
+                }
                 val bytes = connection.inputStream.use { input ->
                     val output = ByteArrayOutputStream(minOf(request.maxBytes, 32 * 1024))
                     val buffer = ByteArray(8 * 1024)
@@ -88,7 +99,9 @@ internal class SafePreviewResourceClient(
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        if (total > request.maxBytes) error("预览资源超过大小限制")
+                        if (total > request.maxBytes) {
+                            throw PreviewResourceTooLargeException(request.maxBytes)
+                        }
                         output.write(buffer, 0, count)
                     }
                     output.toByteArray()
@@ -300,7 +313,9 @@ class SharePreviewLoader internal constructor(
     }
 
     companion object {
-        private const val MAX_HTML_BYTES = 512 * 1024
+        // Modern media pages often embed hydration data in the initial HTML. Keep a bounded
+        // limit for memory safety, but allow pages such as Bilibili's ~1 MiB responses.
+        internal const val MAX_HTML_BYTES = 2 * 1024 * 1024
         private const val MAX_IMAGE_BYTES = 4 * 1024 * 1024
         private const val MAX_TITLE_CHARS = 180
         private const val MAX_DESCRIPTION_CHARS = 300

@@ -78,6 +78,7 @@ class SharePreviewTest {
         assertEquals("【哔哩哔哩】具体内容", preview.title)
         assertEquals("作者 · 简介", preview.description)
         assertTrue(preview.thumbnail!!.contentEquals(byteArrayOf(9, 8, 7)))
+        assertEquals(2 * 1024 * 1024, requests[0].maxBytes)
         assertEquals(setOf("example.com", "cdn.example.com"), requests[1].allowedHosts)
     }
 

@@ -43,6 +43,9 @@ import androidx.lifecycle.lifecycleScope
 import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.ShareTextBuilder
+import app.stoptrackingme.network.NetworkResolutionException
+import app.stoptrackingme.preview.PreviewHttpException
+import app.stoptrackingme.preview.PreviewResourceTooLargeException
 import app.stoptrackingme.preview.SharePreviewLoader
 import app.stoptrackingme.preview.WebSharePreview
 import app.stoptrackingme.rules.CleanResult
@@ -54,6 +57,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.SocketTimeoutException
 
 class ResultActivity : ComponentActivity() {
     private lateinit var sessionId: String
@@ -64,6 +68,7 @@ class ResultActivity : ComponentActivity() {
     private var sharePreview by mutableStateOf<WebSharePreview?>(null)
     private var previewing by mutableStateOf(false)
     private var previewMessage by mutableStateOf<String?>(null)
+    private var previewRetryable by mutableStateOf(false)
     private var previewJob: Job? = null
     private val previewLoader = SharePreviewLoader()
 
@@ -97,8 +102,10 @@ class ResultActivity : ComponentActivity() {
                                 sharePreview = sharePreview,
                                 previewing = previewing,
                                 previewMessage = previewMessage,
+                                previewRetryable = previewRetryable,
                                 onPreserveChange = { preserveOriginalText = it },
                                 onRetry = ::retry,
+                                onPreviewRetry = ::loadSharePreview,
                                 onShare = ::openSystemShare,
                                 onShareToWeChatFriend = {
                                     openWeChatShare(WeChatShare.Destination.FRIEND)
@@ -149,6 +156,7 @@ class ResultActivity : ComponentActivity() {
         previewJob?.cancel()
         sharePreview = null
         previewMessage = null
+        previewRetryable = false
         previewing = false
         val current = ShareSessionStore.get(sessionId) ?: return
         val result = current.result ?: return
@@ -173,12 +181,13 @@ class ResultActivity : ComponentActivity() {
                 if (ShareSessionStore.get(requestedSessionId)?.id != requestedSessionId) return@withContext
                 sharePreview = loaded.getOrNull()
                 previewMessage = if (loaded.isFailure) {
-                    "未能读取公开网页信息，将使用默认微信卡片。"
+                    previewFailureMessage(loaded.exceptionOrNull()!!)
                 } else if (loaded.getOrNull()?.thumbnail == null) {
                     "已读取网页标题和摘要，但没有可用封面。"
                 } else {
                     null
                 }
+                previewRetryable = loaded.isFailure
                 previewing = false
             }
         }
@@ -263,8 +272,10 @@ private fun ResultContent(
     sharePreview: WebSharePreview?,
     previewing: Boolean,
     previewMessage: String?,
+    previewRetryable: Boolean,
     onPreserveChange: (Boolean) -> Unit,
     onRetry: () -> Unit,
+    onPreviewRetry: () -> Unit,
     onShare: () -> Unit,
     onShareToWeChatFriend: () -> Unit,
     onShareToWeChatTimeline: () -> Unit,
@@ -313,6 +324,14 @@ private fun ResultContent(
         }
         previewMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (previewRetryable) {
+            OutlinedButton(
+                onClick = onPreviewRetry,
+                enabled = !previewing,
+            ) {
+                Text("重新读取卡片")
+            }
         }
         Button(
             onClick = onShareToWeChatFriend,
@@ -383,6 +402,26 @@ private fun ResultContent(
     ) {
         Text("关闭并清除本次内容")
     }
+}
+
+internal fun previewFailureMessage(error: Throwable): String {
+    val causes = generateSequence(error as Throwable?) { it.cause }.toList()
+    val tooLarge = causes.filterIsInstance<PreviewResourceTooLargeException>().firstOrNull()
+    if (tooLarge != null) {
+        val limitMiB = tooLarge.maxBytes / (1024 * 1024)
+        return "公开网页内容超过 ${limitMiB} MiB，无法生成预览；将使用默认微信卡片。"
+    }
+    val http = causes.filterIsInstance<PreviewHttpException>().firstOrNull()
+    if (http != null) {
+        return "公开网页返回 HTTP ${http.statusCode}，无法生成预览；将使用默认微信卡片。"
+    }
+    if (causes.any { it is SocketTimeoutException }) {
+        return "读取公开网页超时；将使用默认微信卡片，可稍后重试。"
+    }
+    if (causes.any { it is NetworkResolutionException }) {
+        return "无法解析公开网页域名；将使用默认微信卡片，可检查网络后重试。"
+    }
+    return "未能读取公开网页信息，将使用默认微信卡片；可稍后重试。"
 }
 
 @androidx.compose.runtime.Composable
