@@ -241,7 +241,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        handleViewIntent(intent)
+        handleIncomingIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -252,7 +252,7 @@ class MainActivity : ComponentActivity() {
             if (hasWindowFocus()) readClipboard(reportMissing = false)
         } else {
             autoReadClipboardOnFocus = false
-            handleViewIntent(intent)
+            handleIncomingIntent(intent)
         }
     }
 
@@ -316,8 +316,14 @@ class MainActivity : ComponentActivity() {
         resolveLinkInput(value, SOURCE_CLIPBOARD, reportMissing)
     }
 
+    private fun handleIncomingIntent(incoming: Intent) {
+        when (incoming.action) {
+            Intent.ACTION_VIEW -> handleViewIntent(incoming)
+            Intent.ACTION_SEND -> handleSendIntent(incoming)
+        }
+    }
+
     private fun handleViewIntent(incoming: Intent) {
-        if (incoming.action != Intent.ACTION_VIEW) return
         val uri = incoming.data ?: return
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
@@ -325,6 +331,15 @@ class MainActivity : ComponentActivity() {
             return
         }
         resolveLinkInput(uri.toString(), SOURCE_WEB_INTENT)
+    }
+
+    private fun handleSendIntent(incoming: Intent) {
+        if (incoming.type != "text/plain") {
+            operationMessage = "仅支持分享纯文本中的 HTTP/HTTPS 链接"
+            return
+        }
+        val sharedText = incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
+        resolveLinkInput(sharedText, SOURCE_SYSTEM_SHARE)
     }
 
     private fun resolveLinkInput(
@@ -506,6 +521,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val SOURCE_CLIPBOARD = "manual.clipboard"
+        private const val SOURCE_SYSTEM_SHARE = "manual.system-share"
         private const val SOURCE_WEB_INTENT = "manual.web-intent"
     }
 }
@@ -528,7 +544,7 @@ private fun ManualEntryCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("无需无障碍权限", style = MaterialTheme.typography.titleMedium)
-            Text("手动读取剪贴板，或将本应用选为网页链接的打开方式。")
+            Text("从系统分享菜单发送文本到本应用，也可手动读取剪贴板或将本应用选为网页链接的打开方式。")
             Button(
                 onClick = onReadClipboard,
                 enabled = enabled,

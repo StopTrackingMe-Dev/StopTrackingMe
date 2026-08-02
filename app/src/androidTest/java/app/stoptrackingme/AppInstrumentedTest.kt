@@ -1,5 +1,6 @@
 package app.stoptrackingme
 
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +17,26 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AppInstrumentedTest {
+    @Test
+    fun mainActivityAcceptsPlainTextSystemShares() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val component = ComponentName(context, MainActivity::class.java)
+        val filters = context.packageManager
+            .queryIntentActivities(
+                Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, "https://example.com"),
+                0,
+            )
+
+        assertTrue(
+            filters.any {
+                it.activityInfo.packageName == component.packageName &&
+                    it.activityInfo.name == component.className
+            },
+        )
+    }
+
     @Test
     fun builtInRulesArePackagedAndValid() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
