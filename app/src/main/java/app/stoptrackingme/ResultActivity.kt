@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import app.stoptrackingme.automation.AutomationRuntime
@@ -271,21 +272,7 @@ private fun ResultContent(
     onClose: () -> Unit,
     openMessage: String?,
 ) {
-    result.originalUrl?.let { UrlCard("原始 URL", it) }
-    result.expandedUrl?.let { UrlCard("展开后的 URL", it) }
     result.cleanedUrl?.let { UrlCard("净化 URL", it) }
-
-    if (result.removedParameters.isNotEmpty()) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("已删除的参数", style = MaterialTheme.typography.titleMedium)
-                Text(result.removedParameters.joinToString("、"))
-            }
-        }
-    }
 
     result.failureMessage?.let {
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -311,28 +298,7 @@ private fun ResultContent(
         }
     }
 
-    result.warnings.forEach { warning ->
-        Text("提示：$warning", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-
     if (result.isSuccess) {
-        Text("系统分享文本", style = MaterialTheme.typography.titleMedium)
-        ChoiceRow(
-            selected = !preserveOriginalText,
-            label = "仅分享净化 URL（默认）",
-            onClick = { onPreserveChange(false) },
-        )
-        ChoiceRow(
-            selected = preserveOriginalText,
-            label = "保留原文并替换第一个 URL",
-            onClick = { onPreserveChange(true) },
-        )
-        Button(
-            onClick = onOpen,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("使用其他应用打开净化链接")
-        }
         Text("微信卡片预览", style = MaterialTheme.typography.titleMedium)
         if (previewing) {
             Row(
@@ -368,9 +334,47 @@ private fun ResultContent(
         ) {
             Text("系统分享")
         }
+        Button(
+            onClick = onOpen,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("使用其他应用打开净化链接")
+        }
+        openMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
+
+        Text("分享内容", style = MaterialTheme.typography.titleMedium)
+        ChoiceRow(
+            selected = !preserveOriginalText,
+            label = "仅分享净化 URL（默认）",
+            onClick = { onPreserveChange(false) },
+        )
+        ChoiceRow(
+            selected = preserveOriginalText,
+            label = "保留原文并替换第一个 URL",
+            onClick = { onPreserveChange(true) },
+        )
     }
-    openMessage?.let {
-        Text(it, color = MaterialTheme.colorScheme.error)
+
+    if (result.originalUrl != null || result.expandedUrl != null || result.removedParameters.isNotEmpty()) {
+        Text("处理详情", style = MaterialTheme.typography.titleMedium)
+        result.originalUrl?.let { UrlCard("原始 URL", it) }
+        result.expandedUrl?.let { UrlCard("展开后的 URL", it) }
+        if (result.removedParameters.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("已删除的参数", style = MaterialTheme.typography.titleMedium)
+                    Text(result.removedParameters.joinToString("、"))
+                }
+            }
+        }
+    }
+    result.warnings.forEach { warning ->
+        Text("提示：$warning", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Spacer(Modifier.height(4.dp))
     OutlinedButton(
@@ -398,11 +402,18 @@ private fun WeChatPreviewCard(preview: WebSharePreview) {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(preview.title, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    preview.description,
+                    text = preview.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = preview.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             thumbnail?.let {
