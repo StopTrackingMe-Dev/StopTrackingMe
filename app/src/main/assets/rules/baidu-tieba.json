@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.baidu-tieba.share-clean",
-      "version": 1,
+      "version": 2,
       "displayName": "百度贴吧",
       "source": {
         "kind": "BUILTIN",
@@ -55,6 +55,22 @@
         "requireHttps": true,
         "connectTimeoutMs": 5000,
         "readTimeoutMs": 5000
+      },
+      "sharePreview": {
+        "titleSelectors": [
+          { "type": "META_PROPERTY", "key": "og:title" },
+          { "type": "META_NAME", "key": "twitter:title" },
+          { "type": "HTML_TITLE" }
+        ],
+        "descriptionSelectors": [
+          { "type": "META_PROPERTY", "key": "og:description" },
+          { "type": "META_NAME", "key": "description" }
+        ],
+        "imageSelectors": [
+          { "type": "META_PROPERTY", "key": "og:image" },
+          { "type": "META_NAME", "key": "twitter:image" }
+        ],
+        "imageAllowedHosts": ["baidu.com", "bdimg.com"]
       },
       "cleaningPolicy": {
         "removeExact": [

@@ -22,6 +22,8 @@ class RuleParserTest {
         assertTrue(rule.shareTriggerSelectors.isNotEmpty())
         assertTrue(rule.sharePanelFingerprint.size >= 2)
         assertEquals(5, rule.redirectPolicy.maxRedirects)
+        assertTrue(rule.sharePreview?.titleSelectors?.isNotEmpty() == true)
+        assertTrue("hdslb.com" in rule.sharePreview.orEmptyImageHosts())
         assertTrue("p" in rule.cleaningPolicy.forceKeep)
         assertTrue("t" in rule.cleaningPolicy.forceKeep)
     }
@@ -80,6 +82,20 @@ class RuleParserTest {
     }
 
     @Test
+    fun rejectsUnsupportedPreviewSelectorType() {
+        val bytes = mutate { root ->
+            val preview = root.getAsJsonArray("rules")[0].asJsonObject
+                .getAsJsonObject("sharePreview")
+            preview.getAsJsonArray("titleSelectors")[0].asJsonObject
+                .addProperty("type", "CSS_SELECTOR")
+        }
+
+        assertThrows(RuleValidationException::class.java) {
+            parser.parse(bytes)
+        }
+    }
+
+    @Test
     fun rejectsUnknownTopLevelField() {
         val bytes = mutate { root -> root.addProperty("actions", "anything") }
 
@@ -108,4 +124,6 @@ class RuleParserTest {
         change(root)
         return root.toString().toByteArray(StandardCharsets.UTF_8)
     }
+
+    private fun SharePreviewRule?.orEmptyImageHosts(): Set<String> = this?.imageAllowedHosts.orEmpty()
 }

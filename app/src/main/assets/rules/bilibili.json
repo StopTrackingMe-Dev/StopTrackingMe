@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.bilibili.share-clean",
-      "version": 2,
+      "version": 3,
       "displayName": "哔哩哔哩",
       "source": {
         "kind": "BUILTIN",
@@ -61,6 +61,22 @@
         "requireHttps": true,
         "connectTimeoutMs": 5000,
         "readTimeoutMs": 5000
+      },
+      "sharePreview": {
+        "titleSelectors": [
+          { "type": "META_PROPERTY", "key": "og:title" },
+          { "type": "META_NAME", "key": "twitter:title" },
+          { "type": "HTML_TITLE" }
+        ],
+        "descriptionSelectors": [
+          { "type": "META_PROPERTY", "key": "og:description" },
+          { "type": "META_NAME", "key": "description" }
+        ],
+        "imageSelectors": [
+          { "type": "META_PROPERTY", "key": "og:image" },
+          { "type": "META_NAME", "key": "twitter:image" }
+        ],
+        "imageAllowedHosts": ["hdslb.com", "biliimg.com"]
       },
       "cleaningPolicy": {
         "removeExact": [

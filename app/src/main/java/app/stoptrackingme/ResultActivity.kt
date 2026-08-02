@@ -2,6 +2,8 @@ package app.stoptrackingme
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -25,22 +28,29 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.ShareTextBuilder
+import app.stoptrackingme.preview.SharePreviewLoader
+import app.stoptrackingme.preview.WebSharePreview
 import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSession
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,6 +60,11 @@ class ResultActivity : ComponentActivity() {
     private var preserveOriginalText by mutableStateOf(false)
     private var retrying by mutableStateOf(false)
     private var openMessage by mutableStateOf<String?>(null)
+    private var sharePreview by mutableStateOf<WebSharePreview?>(null)
+    private var previewing by mutableStateOf(false)
+    private var previewMessage by mutableStateOf<String?>(null)
+    private var previewJob: Job? = null
+    private val previewLoader = SharePreviewLoader()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,6 +93,9 @@ class ResultActivity : ComponentActivity() {
                                 result = result,
                                 preserveOriginalText = preserveOriginalText,
                                 retrying = retrying,
+                                sharePreview = sharePreview,
+                                previewing = previewing,
+                                previewMessage = previewMessage,
                                 onPreserveChange = { preserveOriginalText = it },
                                 onRetry = ::retry,
                                 onShare = ::openSystemShare,
@@ -96,6 +114,7 @@ class ResultActivity : ComponentActivity() {
                 }
             }
         }
+        loadSharePreview()
     }
 
     override fun onDestroy() {
@@ -120,6 +139,46 @@ class ResultActivity : ComponentActivity() {
             withContext(Dispatchers.Main) {
                 session = ShareSessionStore.get(sessionId)
                 retrying = false
+                loadSharePreview()
+            }
+        }
+    }
+
+    private fun loadSharePreview() {
+        previewJob?.cancel()
+        sharePreview = null
+        previewMessage = null
+        previewing = false
+        val current = ShareSessionStore.get(sessionId) ?: return
+        val result = current.result ?: return
+        val cleanedUrl = result.cleanedUrl ?: return
+        val installed = RuleRepository.get(this).findInstalledRule(current.ruleKey) ?: return
+        val previewRule = installed.rule.sharePreview ?: run {
+            previewMessage = "当前规则未配置网页预览，将使用默认微信卡片。"
+            return
+        }
+        previewing = true
+        val requestedSessionId = current.id
+        previewJob = lifecycleScope.launch(Dispatchers.IO) {
+            val loaded = runCatching {
+                previewLoader.load(
+                    cleanedUrl = cleanedUrl,
+                    sourceName = installed.rule.displayName,
+                    rule = previewRule,
+                    networkPolicy = installed.rule.redirectPolicy,
+                )
+            }
+            withContext(Dispatchers.Main) {
+                if (ShareSessionStore.get(requestedSessionId)?.id != requestedSessionId) return@withContext
+                sharePreview = loaded.getOrNull()
+                previewMessage = if (loaded.isFailure) {
+                    "未能读取公开网页信息，将使用默认微信卡片。"
+                } else if (loaded.getOrNull()?.thumbnail == null) {
+                    "已读取网页标题和摘要，但没有可用封面。"
+                } else {
+                    null
+                }
+                previewing = false
             }
         }
     }
@@ -146,18 +205,22 @@ class ResultActivity : ComponentActivity() {
             preserveOriginalText = preserveOriginalText,
             extractionRule = installed.rule.clipboardExtraction,
         ) ?: return
-        val description = if (preserveOriginalText) {
+        val preview = sharePreview
+        val defaultHost = Uri.parse(cleanedUrl).host.orEmpty()
+        val title = preview?.title ?: "【${installed.rule.displayName}】网页内容"
+        val description = preview?.description ?: if (preserveOriginalText) {
             shareText
         } else {
-            "已移除链接中的追踪参数"
+            "来自 $defaultHost 的净化链接"
         }
 
         openMessage = when (
             WeChatShare.shareWebPageMessage(
                 context = this,
                 url = cleanedUrl,
-                title = "净化后的链接",
+                title = title,
                 description = description,
+                thumbnail = preview?.thumbnail,
                 destination = destination,
             )
         ) {
@@ -196,6 +259,9 @@ private fun ResultContent(
     result: CleanResult,
     preserveOriginalText: Boolean,
     retrying: Boolean,
+    sharePreview: WebSharePreview?,
+    previewing: Boolean,
+    previewMessage: String?,
     onPreserveChange: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onShare: () -> Unit,
@@ -250,7 +316,7 @@ private fun ResultContent(
     }
 
     if (result.isSuccess) {
-        Text("分享内容", style = MaterialTheme.typography.titleMedium)
+        Text("系统分享文本", style = MaterialTheme.typography.titleMedium)
         ChoiceRow(
             selected = !preserveOriginalText,
             label = "仅分享净化 URL（默认）",
@@ -267,14 +333,31 @@ private fun ResultContent(
         ) {
             Text("使用其他应用打开净化链接")
         }
+        Text("微信卡片预览", style = MaterialTheme.typography.titleMedium)
+        if (previewing) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("正在读取公开网页的标题、摘要和封面…")
+            }
+        } else if (sharePreview != null) {
+            WeChatPreviewCard(sharePreview)
+        }
+        previewMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Button(
             onClick = onShareToWeChatFriend,
+            enabled = !previewing,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("分享给微信朋友")
         }
         Button(
             onClick = onShareToWeChatTimeline,
+            enabled = !previewing,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("分享到微信朋友圈")
@@ -295,6 +378,42 @@ private fun ResultContent(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("关闭并清除本次内容")
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun WeChatPreviewCard(preview: WebSharePreview) {
+    val thumbnail = remember(preview.thumbnail) {
+        preview.thumbnail?.let { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }
+    }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(preview.title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    preview.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            thumbnail?.let {
+                Image(
+                    bitmap = it,
+                    contentDescription = "网页封面",
+                    modifier = Modifier.size(72.dp),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
     }
 }
 

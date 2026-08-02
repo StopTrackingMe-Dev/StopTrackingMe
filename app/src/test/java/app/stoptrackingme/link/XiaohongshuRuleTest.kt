@@ -18,7 +18,7 @@ class XiaohongshuRuleTest {
                     SafeRegexProbe.matches(it.descriptionRegex, "复制链接")
             },
         )
-        assertEquals(3, rule.version)
+        assertEquals(4, rule.version)
         assertTrue("xhslink.cn" in rule.redirectPolicy.shortLinkHosts)
         assertTrue("xhslink.com" in rule.redirectPolicy.shortLinkHosts)
         assertTrue(rule.redirectPolicy.requireHttps)

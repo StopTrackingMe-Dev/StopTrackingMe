@@ -25,6 +25,7 @@ object WeChatShare {
         url: String,
         title: String,
         description: String,
+        thumbnail: ByteArray?,
         destination: Destination,
     ): Result {
         require(url.isNotBlank()) { "分享 URL 不能为空" }
@@ -33,7 +34,7 @@ object WeChatShare {
         api.registerApp(APP_ID)
         if (!api.isWXAppInstalled) return Result.WECHAT_NOT_INSTALLED
 
-        val request = createWebPageRequest(url, title, description, destination)
+        val request = createWebPageRequest(url, title, description, thumbnail, destination)
 
         return if (api.sendReq(request)) Result.REQUEST_SENT else Result.REQUEST_REJECTED
     }
@@ -42,6 +43,7 @@ object WeChatShare {
         url: String,
         title: String,
         description: String,
+        thumbnail: ByteArray?,
         destination: Destination,
         nowMillis: Long = System.currentTimeMillis(),
     ): SendMessageToWX.Req {
@@ -51,6 +53,9 @@ object WeChatShare {
         val message = WXMediaMessage(webpage).apply {
             this.title = title.take(MAX_TITLE_LENGTH)
             this.description = description.take(MAX_DESCRIPTION_LENGTH)
+            if (thumbnail != null && thumbnail.size <= MAX_THUMBNAIL_LENGTH) {
+                thumbData = thumbnail
+            }
         }
         return SendMessageToWX.Req().apply {
             transaction = "webpage_$nowMillis"
@@ -61,4 +66,5 @@ object WeChatShare {
 
     private const val MAX_TITLE_LENGTH = 512
     private const val MAX_DESCRIPTION_LENGTH = 1024
+    private const val MAX_THUMBNAIL_LENGTH = 32 * 1024
 }

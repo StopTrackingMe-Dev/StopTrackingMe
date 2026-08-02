@@ -66,6 +66,7 @@ class RuleParser {
             "copySettleDelayMs",
             "clipboardExtraction",
             "redirectPolicy",
+            "sharePreview",
             "cleaningPolicy",
         )
         val id = json.requiredString("id").validatedToken("规则标识", MAX_ID_LENGTH)
@@ -112,6 +113,9 @@ class RuleParser {
             copySettleDelayMs = settleDelay,
             clipboardExtraction = parseClipboard(json.requiredObject("clipboardExtraction")),
             redirectPolicy = parseRedirectPolicy(json.requiredObject("redirectPolicy")),
+            sharePreview = json.get("sharePreview")?.let { element ->
+                parseSharePreview(element.requiredObject("sharePreview"))
+            },
             cleaningPolicy = parseCleaningPolicy(json.requiredObject("cleaningPolicy")),
         )
     }
@@ -208,6 +212,71 @@ class RuleParser {
             removePrefixes = json.requiredParameterSet("removePrefixes"),
             forceKeep = json.requiredParameterSet("forceKeep"),
         )
+    }
+
+    private fun parseSharePreview(json: JsonObject): SharePreviewRule {
+        json.requireOnly(
+            "titleSelectors",
+            "descriptionSelectors",
+            "imageSelectors",
+            "imageAllowedHosts",
+        )
+        return SharePreviewRule(
+            titleSelectors = parsePreviewSelectors(
+                json.requiredArray("titleSelectors"),
+                "预览标题选择器",
+                allowHtmlTitle = true,
+            ),
+            descriptionSelectors = parsePreviewSelectors(
+                json.requiredArray("descriptionSelectors"),
+                "预览摘要选择器",
+                allowHtmlTitle = false,
+            ),
+            imageSelectors = parsePreviewSelectors(
+                json.requiredArray("imageSelectors"),
+                "预览图片选择器",
+                allowHtmlTitle = false,
+            ),
+            imageAllowedHosts = json.requiredStringSet("imageAllowedHosts", MAX_HOSTS)
+                .mapTo(linkedSetOf(), ::normalizeHost),
+        )
+    }
+
+    private fun parsePreviewSelectors(
+        json: JsonArray,
+        label: String,
+        allowHtmlTitle: Boolean,
+    ): List<PreviewFieldSelector> {
+        if (json.size() !in 1..MAX_PREVIEW_SELECTORS) {
+            throw RuleValidationException("$label 数量超出限制")
+        }
+        return json.mapIndexed { index, element ->
+            val selector = element.requiredObject("$label[$index]")
+            selector.requireOnly("type", "key")
+            val type = try {
+                PreviewSelectorType.valueOf(selector.requiredString("type").uppercase(Locale.ROOT))
+            } catch (error: IllegalArgumentException) {
+                throw RuleValidationException("$label 类型无效", error)
+            }
+            val key = selector.optionalString("key")
+            when (type) {
+                PreviewSelectorType.HTML_TITLE -> {
+                    if (!allowHtmlTitle || key != null) {
+                        throw RuleValidationException("$label 中 HTML_TITLE 配置无效")
+                    }
+                }
+                PreviewSelectorType.META_PROPERTY,
+                PreviewSelectorType.META_NAME,
+                -> {
+                    if (key == null || key.length > MAX_PREVIEW_KEY_LENGTH ||
+                        !PREVIEW_KEY_PATTERN.matches(key)
+                    ) {
+                        throw RuleValidationException("$label 元数据键无效")
+                    }
+                }
+            }
+            PreviewFieldSelector(type, key)
+        }
     }
 
     private fun normalizeHost(value: String): String {
@@ -368,6 +437,8 @@ class RuleParser {
         private const val MAX_REDIRECTS = 5
         private const val MAX_HOSTS = 32
         private const val MAX_PARAMETERS = 128
+        private const val MAX_PREVIEW_SELECTORS = 8
+        private const val MAX_PREVIEW_KEY_LENGTH = 80
         private const val MAX_ID_LENGTH = 80
         private const val MAX_NAME_LENGTH = 80
         private const val MAX_SOURCE_LENGTH = 512
@@ -386,6 +457,7 @@ class RuleParser {
         private val HOST_PATTERN = Regex("""(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?""")
         private val TOKEN_PATTERN = Regex("""[A-Za-z0-9._-]+""")
         private val PARAMETER_PATTERN = Regex("""[A-Za-z0-9._~-]+""")
+        private val PREVIEW_KEY_PATTERN = Regex("""[A-Za-z0-9._:-]+""")
         private val INTEGER_PATTERN = Regex("""-?(0|[1-9][0-9]*)""")
         private val DANGEROUS_KEYS = listOf(
             "coordinate",

@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.netease-cloud-music.share-clean",
-      "version": 1,
+      "version": 2,
       "displayName": "网易云音乐",
       "source": {
         "kind": "BUILTIN",
@@ -59,6 +59,22 @@
         "requireHttps": true,
         "connectTimeoutMs": 5000,
         "readTimeoutMs": 5000
+      },
+      "sharePreview": {
+        "titleSelectors": [
+          { "type": "META_PROPERTY", "key": "og:title" },
+          { "type": "META_NAME", "key": "twitter:title" },
+          { "type": "HTML_TITLE" }
+        ],
+        "descriptionSelectors": [
+          { "type": "META_PROPERTY", "key": "og:description" },
+          { "type": "META_NAME", "key": "description" }
+        ],
+        "imageSelectors": [
+          { "type": "META_PROPERTY", "key": "og:image" },
+          { "type": "META_NAME", "key": "twitter:image" }
+        ],
+        "imageAllowedHosts": ["126.net"]
       },
       "cleaningPolicy": {
         "removeExact": [

@@ -54,6 +54,24 @@ data class CleaningPolicy(
     val forceKeep: Set<String>,
 )
 
+enum class PreviewSelectorType {
+    META_PROPERTY,
+    META_NAME,
+    HTML_TITLE,
+}
+
+data class PreviewFieldSelector(
+    val type: PreviewSelectorType,
+    val key: String?,
+)
+
+data class SharePreviewRule(
+    val titleSelectors: List<PreviewFieldSelector>,
+    val descriptionSelectors: List<PreviewFieldSelector>,
+    val imageSelectors: List<PreviewFieldSelector>,
+    val imageAllowedHosts: Set<String>,
+)
+
 data class AppRule(
     val id: String,
     val version: Int,
@@ -71,6 +89,7 @@ data class AppRule(
     val copySettleDelayMs: Long,
     val clipboardExtraction: ClipboardExtractionRule,
     val redirectPolicy: RedirectPolicy,
+    val sharePreview: SharePreviewRule?,
     val cleaningPolicy: CleaningPolicy,
 )
 
