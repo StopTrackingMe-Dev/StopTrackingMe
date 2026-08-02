@@ -367,6 +367,7 @@ class RuleParser {
                 PreviewSelectorType.META_PROPERTY,
                 PreviewSelectorType.META_NAME,
                 PreviewSelectorType.JSON_PATH,
+                PreviewSelectorType.SCRIPT_JSON_PATH,
                 -> {
                     if (key == null || key.length > MAX_PREVIEW_KEY_LENGTH ||
                         !PREVIEW_KEY_PATTERN.matches(key)

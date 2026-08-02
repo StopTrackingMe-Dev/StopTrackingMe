@@ -189,10 +189,14 @@ internal object PageMetadataParser {
     ): PageMetadata {
         if (responseType == PreviewResponseType.JSON) return parseJson(bytes, rule)
         val document = Jsoup.parse(ByteArrayInputStream(bytes), null, baseUri.toASCIIString())
+        val scriptJsonRoots = parseScriptJsonRoots(
+            document,
+            rule.titleSelectors + rule.descriptionSelectors + rule.imageSelectors,
+        )
         return PageMetadata(
-            title = firstValue(document, rule.titleSelectors),
-            description = firstValue(document, rule.descriptionSelectors),
-            imageUrl = firstValue(document, rule.imageSelectors),
+            title = firstValue(document, rule.titleSelectors, scriptJsonRoots),
+            description = firstValue(document, rule.descriptionSelectors, scriptJsonRoots),
+            imageUrl = firstValue(document, rule.imageSelectors, scriptJsonRoots),
         )
     }
 
@@ -207,24 +211,16 @@ internal object PageMetadataParser {
 
     private fun firstJsonValue(root: JsonElement, selectors: List<PreviewFieldSelector>): String? {
         selectors.filter { it.type == PreviewSelectorType.JSON_PATH }.forEach { selector ->
-            var current = root
-            for (segment in selector.key.orEmpty().split('.')) {
-                current = when {
-                    current.isJsonObject -> current.asJsonObject.get(segment) ?: return@forEach
-                    current.isJsonArray -> segment.toIntOrNull()?.let { index ->
-                        current.asJsonArray.takeIf { index in 0 until it.size() }?.get(index)
-                    } ?: return@forEach
-                    else -> return@forEach
-                }
-            }
-            if (current.isJsonPrimitive && current.asJsonPrimitive.isString) {
-                normalize(current.asString)?.let { return it }
-            }
+            jsonStringAtPath(root, selector.key.orEmpty().split('.'))?.let { return it }
         }
         return null
     }
 
-    private fun firstValue(document: Document, selectors: List<PreviewFieldSelector>): String? {
+    private fun firstValue(
+        document: Document,
+        selectors: List<PreviewFieldSelector>,
+        scriptJsonRoots: Map<String, JsonElement>,
+    ): String? {
         selectors.forEach { selector ->
             val value = when (selector.type) {
                 PreviewSelectorType.HTML_TITLE -> document.title()
@@ -235,10 +231,62 @@ internal object PageMetadataParser {
                     .firstOrNull { it.attr("name").equals(selector.key, ignoreCase = true) }
                     ?.attr("content")
                 PreviewSelectorType.JSON_PATH -> null
+                PreviewSelectorType.SCRIPT_JSON_PATH -> {
+                    val segments = selector.key.orEmpty().split('.')
+                    scriptJsonRoots[segments.first()]
+                        ?.let { jsonStringAtPath(it, segments.drop(1)) }
+                }
             }
             normalize(value)?.let { return it }
         }
         return null
+    }
+
+    private fun parseScriptJsonRoots(
+        document: Document,
+        selectors: List<PreviewFieldSelector>,
+    ): Map<String, JsonElement> {
+        val rootNames = selectors.asSequence()
+            .filter { it.type == PreviewSelectorType.SCRIPT_JSON_PATH }
+            .mapNotNull { it.key?.substringBefore('.') }
+            .toSet()
+        if (rootNames.isEmpty()) return emptyMap()
+
+        val result = linkedMapOf<String, JsonElement>()
+        document.getElementsByTag("script").forEach { script ->
+            val source = script.data().trim()
+            rootNames.filterNot(result::containsKey).forEach { rootName ->
+                val prefix = "window.$rootName="
+                if (source.startsWith(prefix)) {
+                    try {
+                        result[rootName] = JsonParser.parseString(
+                            source.removePrefix(prefix).removeSuffix(";").trim(),
+                        )
+                    } catch (_: Exception) {
+                        // Ignore malformed page state and continue to the next declared fallback.
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun jsonStringAtPath(root: JsonElement, segments: List<String>): String? {
+        var current = root
+        for (segment in segments) {
+            current = when {
+                current.isJsonObject -> current.asJsonObject.get(segment) ?: return null
+                current.isJsonArray -> segment.toIntOrNull()?.let { index ->
+                    current.asJsonArray.takeIf { index in 0 until it.size() }?.get(index)
+                } ?: return null
+                else -> return null
+            }
+        }
+        return if (current.isJsonPrimitive && current.asJsonPrimitive.isString) {
+            normalize(current.asString)
+        } else {
+            null
+        }
     }
 
     private fun normalize(value: String?): String? {

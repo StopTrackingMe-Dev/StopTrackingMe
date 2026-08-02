@@ -19,7 +19,7 @@ class XiaohongshuRuleTest {
                     SafeRegexProbe.matches(it.descriptionRegex, "复制链接")
             },
         )
-        assertEquals(5, rule.version)
+        assertEquals(6, rule.version)
         assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertTrue("xhslink.cn" in rule.redirectPolicy.shortLinkHosts)
         assertTrue("xhslink.com" in rule.redirectPolicy.shortLinkHosts)
@@ -44,6 +44,7 @@ class XiaohongshuRuleTest {
                     "&share_id=share-marker" +
                     "&share_channel=copy_link" +
                     "&appuid=account-marker" +
+                    "&wechatWid=wechat-marker" +
                     "&xhsshare=CopyLink",
                 1,
             )
@@ -73,6 +74,7 @@ class XiaohongshuRuleTest {
                 "share_id",
                 "share_channel",
                 "appuid",
+                "wechatWid",
                 "xhsshare",
             ),
             result.removedParameters,

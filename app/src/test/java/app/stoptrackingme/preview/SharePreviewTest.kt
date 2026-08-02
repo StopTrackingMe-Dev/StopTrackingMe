@@ -45,6 +45,33 @@ class SharePreviewTest {
     }
 
     @Test
+    fun xiaohongshuRuleReadsServerStateWhenMobileHtmlHasNoTitleMetadata() {
+        val siteRule = TestFixtures.builtInRule("xiaohongshu").sharePreview!!
+        val html = """
+            <html><head>
+              <title>小红书</title>
+              <meta name="og:title" content=" - 小红书">
+              <meta name="og:description" content="">
+              <meta name="og:image" content="https://ci.xiaohongshu.com/placeholder.jpg">
+            </head><body>
+              <script>
+                window.__SETUP_SERVER_STATE__={"LAUNCHER_SSR_STORE_PAGE_DATA":{"noteData":{"title":"Viola略施小计…","desc":"薇欧拉笔记","imageList":[{"url":"http://sns-webpic-qc.xhscdn.com/cover.webp"}]}}}
+              </script>
+            </body></html>
+        """.trimIndent().toByteArray()
+
+        val metadata = PageMetadataParser.parse(
+            html,
+            URI("https://www.xiaohongshu.com/discovery/item/6a6f2f2a000000002c0033bf"),
+            siteRule,
+        )
+
+        assertEquals("Viola略施小计…", metadata.title)
+        assertEquals("薇欧拉笔记", metadata.description)
+        assertEquals("http://sns-webpic-qc.xhscdn.com/cover.webp", metadata.imageUrl)
+    }
+
+    @Test
     fun loaderBuildsSourcePrefixedCardAndOnlyFetchesAllowedImage() {
         val requests = mutableListOf<PreviewFetchRequest>()
         val client = PreviewResourceClient { request ->

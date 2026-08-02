@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.xiaohongshu.share-clean",
-      "version": 5,
+      "version": 6,
       "displayName": "小红书",
       "source": {
         "kind": "BUILTIN",
@@ -64,15 +64,18 @@
       },
       "sharePreview": {
         "titleSelectors": [
+          { "type": "SCRIPT_JSON_PATH", "key": "__SETUP_SERVER_STATE__.LAUNCHER_SSR_STORE_PAGE_DATA.noteData.title" },
           { "type": "META_PROPERTY", "key": "og:title" },
           { "type": "META_NAME", "key": "twitter:title" },
           { "type": "HTML_TITLE" }
         ],
         "descriptionSelectors": [
+          { "type": "SCRIPT_JSON_PATH", "key": "__SETUP_SERVER_STATE__.LAUNCHER_SSR_STORE_PAGE_DATA.noteData.desc" },
           { "type": "META_PROPERTY", "key": "og:description" },
           { "type": "META_NAME", "key": "description" }
         ],
         "imageSelectors": [
+          { "type": "SCRIPT_JSON_PATH", "key": "__SETUP_SERVER_STATE__.LAUNCHER_SSR_STORE_PAGE_DATA.noteData.imageList.0.url" },
           { "type": "META_PROPERTY", "key": "og:image" },
           { "type": "META_NAME", "key": "twitter:image" }
         ],
@@ -99,6 +102,7 @@
           "appuid",
           "share_from",
           "share_type",
+          "wechatWid",
           "gclid",
           "fbclid",
           "msclkid",

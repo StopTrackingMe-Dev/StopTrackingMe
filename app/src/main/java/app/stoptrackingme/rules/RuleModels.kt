@@ -64,6 +64,7 @@ enum class PreviewSelectorType {
     META_NAME,
     HTML_TITLE,
     JSON_PATH,
+    SCRIPT_JSON_PATH,
 }
 
 data class PreviewFieldSelector(
