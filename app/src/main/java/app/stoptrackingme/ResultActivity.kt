@@ -81,6 +81,12 @@ class ResultActivity : ComponentActivity() {
                                 onPreserveChange = { preserveOriginalText = it },
                                 onRetry = ::retry,
                                 onShare = ::openSystemShare,
+                                onShareToWeChatFriend = {
+                                    openWeChatShare(WeChatShare.Destination.FRIEND)
+                                },
+                                onShareToWeChatTimeline = {
+                                    openWeChatShare(WeChatShare.Destination.TIMELINE)
+                                },
                                 onOpen = ::openCleanedLink,
                                 onClose = ::finish,
                                 openMessage = openMessage,
@@ -130,6 +136,38 @@ class ResultActivity : ComponentActivity() {
         startActivity(ShareIntentFactory.createChooser(shareText))
     }
 
+    private fun openWeChatShare(destination: WeChatShare.Destination) {
+        val current = ShareSessionStore.get(sessionId) ?: return
+        val result = current.result ?: return
+        val cleanedUrl = result.cleanedUrl ?: return
+        val installed = RuleRepository.get(this).findInstalledRule(current.ruleKey) ?: return
+        val shareText = ShareTextBuilder.build(
+            result = result,
+            preserveOriginalText = preserveOriginalText,
+            extractionRule = installed.rule.clipboardExtraction,
+        ) ?: return
+        val description = if (preserveOriginalText) {
+            shareText
+        } else {
+            "已移除链接中的追踪参数"
+        }
+
+        openMessage = when (
+            WeChatShare.shareWebPageMessage(
+                context = this,
+                url = cleanedUrl,
+                title = "净化后的链接",
+                description = description,
+                destination = destination,
+            )
+        ) {
+            WeChatShare.Result.REQUEST_SENT -> null
+            WeChatShare.Result.WECHAT_NOT_INSTALLED -> "未安装微信，无法使用微信分享。"
+            WeChatShare.Result.REQUEST_REJECTED ->
+                "微信未接受分享请求，请确认开放平台中的包名和应用签名配置正确。"
+        }
+    }
+
     private fun openCleanedLink() {
         val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
         val chooser = ExternalLinkIntentFactory.createChooser(
@@ -161,6 +199,8 @@ private fun ResultContent(
     onPreserveChange: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onShare: () -> Unit,
+    onShareToWeChatFriend: () -> Unit,
+    onShareToWeChatTimeline: () -> Unit,
     onOpen: () -> Unit,
     onClose: () -> Unit,
     openMessage: String?,
@@ -226,6 +266,18 @@ private fun ResultContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("使用其他应用打开净化链接")
+        }
+        Button(
+            onClick = onShareToWeChatFriend,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("分享给微信朋友")
+        }
+        Button(
+            onClick = onShareToWeChatTimeline,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("分享到微信朋友圈")
         }
         Button(
             onClick = onShare,

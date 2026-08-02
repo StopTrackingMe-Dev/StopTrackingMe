@@ -10,6 +10,7 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 gson = "2.11.0"
 re2j = "1.8"
+wechatOpenSdk = "6.8.40"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -28,6 +29,7 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 re2j = { group = "com.google.re2j", name = "re2j", version.ref = "re2j" }
+wechat-open-sdk = { group = "com.tencent.mm.opensdk", name = "wechat-sdk-android", version.ref = "wechatOpenSdk" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
