@@ -27,6 +27,7 @@ object WeChatShare {
         description: String,
         thumbnail: ByteArray?,
         destination: Destination,
+        transaction: String? = null,
     ): Result {
         require(url.isNotBlank()) { "分享 URL 不能为空" }
 
@@ -34,7 +35,14 @@ object WeChatShare {
         api.registerApp(APP_ID)
         if (!api.isWXAppInstalled) return Result.WECHAT_NOT_INSTALLED
 
-        val request = createWebPageRequest(url, title, description, thumbnail, destination)
+        val request = createWebPageRequest(
+            url = url,
+            title = title,
+            description = description,
+            thumbnail = thumbnail,
+            destination = destination,
+            transaction = transaction,
+        )
 
         return if (api.sendReq(request)) Result.REQUEST_SENT else Result.REQUEST_REJECTED
     }
@@ -46,6 +54,7 @@ object WeChatShare {
         thumbnail: ByteArray?,
         destination: Destination,
         nowMillis: Long = System.currentTimeMillis(),
+        transaction: String? = null,
     ): SendMessageToWX.Req {
         val webpage = WXWebpageObject().apply {
             webpageUrl = url
@@ -58,7 +67,7 @@ object WeChatShare {
             }
         }
         return SendMessageToWX.Req().apply {
-            transaction = "webpage_$nowMillis"
+            this.transaction = transaction ?: "webpage_$nowMillis"
             this.message = message
             scene = destination.scene
         }

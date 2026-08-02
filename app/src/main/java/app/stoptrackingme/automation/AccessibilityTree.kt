@@ -1,5 +1,6 @@
 package app.stoptrackingme.automation
 
+import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import app.stoptrackingme.rules.NodeSelector
 import app.stoptrackingme.rules.RuleParser
@@ -123,6 +124,29 @@ object AccessibilityTree {
         return labels
     }
 
+    fun findMatchingBounds(
+        root: AccessibilityNodeInfo,
+        selectors: List<NodeSelector>,
+    ): List<Rect> {
+        val bounds = ArrayList<Rect>()
+        traverse(root) { node ->
+            if (selectors.any { SelectorMatcher.matches(node.asView(), it) }) {
+                node.nonEmptyBounds()?.let(bounds::add)
+            }
+            false
+        }
+        return bounds
+    }
+
+    fun collectClickableBounds(root: AccessibilityNodeInfo): List<Rect> {
+        val bounds = ArrayList<Rect>()
+        traverse(root) { node ->
+            if (node.isClickable && node.isEnabled) node.nonEmptyBounds()?.let(bounds::add)
+            false
+        }
+        return bounds.distinct()
+    }
+
     private inline fun traverse(
         root: AccessibilityNodeInfo,
         visit: (AccessibilityNodeInfo) -> Boolean,
@@ -149,4 +173,10 @@ object AccessibilityTree {
             override val className: String = this@asView.className?.toString().orEmpty()
             override val isClickable: Boolean = this@asView.isClickable
         }
+
+    private fun AccessibilityNodeInfo.nonEmptyBounds(): Rect? {
+        val bounds = Rect()
+        getBoundsInScreen(bounds)
+        return bounds.takeUnless { it.isEmpty }
+    }
 }

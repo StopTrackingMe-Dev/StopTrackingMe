@@ -12,6 +12,10 @@ import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.automation.AutomationStage
 import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.LinkProcessingStage
+import app.stoptrackingme.overlay.ShareOverlayCoordinator
+import app.stoptrackingme.overlay.ShareOverlayEvent
+import app.stoptrackingme.presentation.ResultPresentationMode
+import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.ProcessingFailure
 import app.stoptrackingme.rules.RuleRepository
@@ -92,10 +96,7 @@ class ClipboardCaptureActivity : Activity() {
                     }
                     runOnUiThread {
                         ServiceStatus.update(this, "处理完成，等待用户确认", AutomationStage.SHOW_RESULT)
-                        startActivity(
-                            Intent(this, ResultActivity::class.java)
-                                .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId),
-                        )
+                        presentResult()
                         close()
                     }
                 } finally {
@@ -126,10 +127,7 @@ class ClipboardCaptureActivity : Activity() {
         AutomationRuntime.transition(sessionId, AutomationStage.EXTRACT)
         AutomationRuntime.transition(sessionId, AutomationStage.SHOW_RESULT)
         ServiceStatus.update(this, "未能读取复制内容", AutomationStage.SHOW_RESULT)
-        startActivity(
-            Intent(this, ResultActivity::class.java)
-                .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId),
-        )
+        presentResult()
         close()
     }
 
@@ -150,11 +148,19 @@ class ClipboardCaptureActivity : Activity() {
         AutomationRuntime.transition(sessionId, AutomationStage.EXTRACT)
         AutomationRuntime.transition(sessionId, AutomationStage.SHOW_RESULT)
         ServiceStatus.update(this, "复制内容超过安全长度限制", AutomationStage.SHOW_RESULT)
+        presentResult()
+        close()
+    }
+
+    private fun presentResult() {
+        val overlayHandled =
+            ResultPresentationPreferences.get(this) == ResultPresentationMode.ACCESSIBILITY_OVERLAY &&
+                ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultReady(sessionId))
+        if (overlayHandled) return
         startActivity(
             Intent(this, ResultActivity::class.java)
                 .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId),
         )
-        close()
     }
 
     private fun close() {

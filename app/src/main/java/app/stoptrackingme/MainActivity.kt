@@ -53,6 +53,8 @@ import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.UrlRuleCandidate
 import app.stoptrackingme.link.UrlRuleMatcher
 import app.stoptrackingme.link.UrlRuleResolution
+import app.stoptrackingme.presentation.ResultPresentationMode
+import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
+    private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var catalog by mutableStateOf(RuleCatalog(emptyList(), emptyList(), emptyList()))
     private var remoteUrl by mutableStateOf("")
     private var operationMessage by mutableStateOf<String?>(null)
@@ -97,6 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = RuleRepository.get(this)
         catalog = repository.reload()
+        resultPresentationMode = ResultPresentationPreferences.get(this)
         autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
         setContent {
@@ -121,8 +125,13 @@ class MainActivity : ComponentActivity() {
                         ServiceCard(
                             enabled = serviceEnabled,
                             status = serviceState,
+                            resultPresentationMode = resultPresentationMode,
                             onOpenSettings = {
                                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            },
+                            onResultPresentationModeChange = { mode ->
+                                ResultPresentationPreferences.set(this@MainActivity, mode)
+                                resultPresentationMode = mode
                             },
                         )
 
@@ -252,6 +261,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         catalog = repository.reload()
+        resultPresentationMode = ResultPresentationPreferences.get(this)
         refreshState()
     }
 
@@ -565,7 +575,9 @@ private fun UnsupportedLinkDialog(
 private fun ServiceCard(
     enabled: Boolean,
     status: String,
+    resultPresentationMode: ResultPresentationMode,
     onOpenSettings: () -> Unit,
+    onResultPresentationModeChange: (ResultPresentationMode) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -578,7 +590,40 @@ private fun ServiceCard(
             )
             Text(status)
             Button(onClick = onOpenSettings) { Text("打开无障碍设置") }
+            Text("自动化结果显示", style = MaterialTheme.typography.titleSmall)
+            PresentationModeChoice(
+                selected = resultPresentationMode == ResultPresentationMode.APP_PAGE,
+                label = "打开完整结果页（默认）",
+                onClick = { onResultPresentationModeChange(ResultPresentationMode.APP_PAGE) },
+            )
+            PresentationModeChoice(
+                selected = resultPresentationMode == ResultPresentationMode.ACCESSIBILITY_OVERLAY,
+                label = "在来源应用上显示悬浮窗",
+                onClick = {
+                    onResultPresentationModeChange(ResultPresentationMode.ACCESSIBILITY_OVERLAY)
+                },
+            )
+            Text(
+                "悬浮窗仅在无障碍自动化中使用，不需要额外的系统悬浮窗权限。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun PresentationModeChoice(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label)
     }
 }
 

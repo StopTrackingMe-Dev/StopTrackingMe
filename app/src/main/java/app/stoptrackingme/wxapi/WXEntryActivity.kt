@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import app.stoptrackingme.WeChatShare
+import app.stoptrackingme.overlay.ShareOverlayCoordinator
+import app.stoptrackingme.overlay.ShareOverlayEvent
+import app.stoptrackingme.overlay.WeChatOutcome
 import com.tencent.mm.opensdk.modelbase.BaseReq
 import com.tencent.mm.opensdk.modelbase.BaseResp
 import com.tencent.mm.opensdk.openapi.IWXAPI
@@ -29,6 +32,14 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
     override fun onReq(req: BaseReq) = Unit
 
     override fun onResp(resp: BaseResp) {
+        val outcome = when (resp.errCode) {
+            BaseResp.ErrCode.ERR_OK -> WeChatOutcome.SUCCESS
+            BaseResp.ErrCode.ERR_USER_CANCEL -> WeChatOutcome.CANCELLED
+            else -> WeChatOutcome.FAILED
+        }
+        ShareOverlayCoordinator.dispatch(
+            ShareOverlayEvent.WeChatFinished(resp.transaction, outcome),
+        )
         val message = when (resp.errCode) {
             BaseResp.ErrCode.ERR_OK -> "微信分享已完成"
             BaseResp.ErrCode.ERR_USER_CANCEL -> "已取消微信分享"
