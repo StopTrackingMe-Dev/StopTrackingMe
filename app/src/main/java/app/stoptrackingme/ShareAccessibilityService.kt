@@ -58,6 +58,8 @@ class ShareAccessibilityService : AccessibilityService() {
     private var previewWorker: Thread? = null
     private var pendingWeChat: PendingWeChat? = null
     private var weChatTimeout: Runnable? = null
+    private var pendingSystemShareSessionId: String? = null
+    private var systemShareLaunchTimeout: Runnable? = null
     private var pendingResultPageSessionId: String? = null
     private var resultPageLaunchTimeout: Runnable? = null
     private val overlayEventListener = ShareOverlayEventListener(::onOverlayEvent)
@@ -68,6 +70,7 @@ class ShareAccessibilityService : AccessibilityService() {
         rules = RuleRepository.get(this)
         rules.reload()
         awaitingPanelSeenSessionId = null
+        cancelSystemShareLaunch()
         cancelResultPageLaunch()
         removeClipboardFocusBridge()
         cancelOverlayWorkers()
@@ -111,7 +114,11 @@ class ShareAccessibilityService : AccessibilityService() {
             ) {
                 finishOverlaySession(
                     snapshotBeforeEvent.sessionId.orEmpty(),
-                    "已离开来源应用，本次悬浮分享会话已结束",
+                    if (pendingSystemShareSessionId == snapshotBeforeEvent.sessionId) {
+                        "已打开系统分享，本次悬浮分享会话已结束"
+                    } else {
+                        "已离开来源应用，本次悬浮分享会话已结束"
+                    },
                 )
             }
             return
@@ -217,6 +224,7 @@ class ShareAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         awaitingPanelSeenSessionId = null
+        cancelSystemShareLaunch()
         cancelResultPageLaunch()
         removeClipboardFocusBridge()
         val sessionId = AutomationRuntime.current().sessionId
@@ -230,6 +238,7 @@ class ShareAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         awaitingPanelSeenSessionId = null
+        cancelSystemShareLaunch()
         cancelResultPageLaunch()
         removeClipboardFocusBridge()
         cancelOverlayWorkers()
@@ -922,20 +931,57 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun openOverlaySystemShare(sessionId: String) {
-        val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
-        overlayController.hide(sessionId)
-        val launchError = runCatching {
-            startActivity(
-                ShareIntentFactory.createChooser(cleanedUrl)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }.exceptionOrNull()
-        if (launchError != null) {
-            if (isDebugBuild) Log.w(TAG, "Unable to open system share from overlay")
-            overlayController.restore(sessionId, "系统分享面板打开失败，请重试")
+        if (pendingSystemShareSessionId != null ||
+            pendingResultPageSessionId != null ||
+            overlayController.activeSessionId != sessionId
+        ) {
             return
         }
-        finishOverlaySession(sessionId, "已交给系统分享，本次悬浮会话已结束")
+        val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
+        pendingSystemShareSessionId = sessionId
+
+        // Keep a visible window owned by this UID until the chooser launch has crossed the
+        // system-server boundary. Some OEMs silently block startActivity() from a bound service
+        // once the tappable overlay is removed, without returning an error to this process.
+        val launchDelay = if (attachLaunchBridge()) LAUNCH_BRIDGE_SETTLE_MS else 0L
+        val timeout = Runnable {
+            if (pendingSystemShareSessionId != sessionId) return@Runnable
+            cancelSystemShareLaunch(sessionId)
+            overlayController.restore(sessionId, "系统未允许打开分享面板，请重试")
+            ServiceStatus.update(
+                this,
+                "系统分享未能打开，净化结果仍在悬浮窗中",
+                AutomationStage.SHOW_RESULT,
+            )
+        }
+        systemShareLaunchTimeout = timeout
+        handler.postDelayed(timeout, launchDelay + SYSTEM_SHARE_LAUNCH_TIMEOUT_MS)
+        handler.postDelayed({
+            if (pendingSystemShareSessionId != sessionId ||
+                overlayController.activeSessionId != sessionId
+            ) {
+                return@postDelayed
+            }
+            val launchError = runCatching {
+                startActivity(
+                    ShareIntentFactory.createChooser(cleanedUrl)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }.exceptionOrNull()
+            if (launchError != null) {
+                if (isDebugBuild) {
+                    Log.w(TAG, "Unable to open system share from overlay", launchError)
+                }
+                cancelSystemShareLaunch(sessionId)
+                overlayController.updateStatus(sessionId, "系统分享面板打开失败，请重试")
+                return@postDelayed
+            }
+
+            // A blocked background launch has no direct return value. Hide the result while we
+            // wait for the chooser's accessibility event; the watchdog restores it if none arrives.
+            overlayController.hide(sessionId)
+            handler.postDelayed(::removeLaunchBridge, LAUNCH_BRIDGE_LIFETIME_MS)
+        }, launchDelay)
     }
 
     private fun openOverlayWeChat(sessionId: String, destination: WeChatShare.Destination) {
@@ -1082,9 +1128,18 @@ class ShareAccessibilityService : AccessibilityService() {
         removeLaunchBridge()
     }
 
+    private fun cancelSystemShareLaunch(sessionId: String? = null) {
+        if (sessionId != null && pendingSystemShareSessionId != sessionId) return
+        systemShareLaunchTimeout?.let(handler::removeCallbacks)
+        systemShareLaunchTimeout = null
+        pendingSystemShareSessionId = null
+        removeLaunchBridge()
+    }
+
     private fun finishOverlaySession(sessionId: String, message: String) {
         if (sessionId.isBlank()) return
         if (awaitingPanelSeenSessionId == sessionId) awaitingPanelSeenSessionId = null
+        cancelSystemShareLaunch(sessionId)
         cancelResultPageLaunch(sessionId)
         removeClipboardFocusBridge()
         cancelOverlayWorkers()
@@ -1107,6 +1162,7 @@ class ShareAccessibilityService : AccessibilityService() {
 
     private fun cancelTask(sessionId: String, message: String) {
         if (awaitingPanelSeenSessionId == sessionId) awaitingPanelSeenSessionId = null
+        cancelSystemShareLaunch(sessionId)
         cancelResultPageLaunch(sessionId)
         removeClipboardFocusBridge()
         scheduledScanSessions.remove(sessionId)
@@ -1140,6 +1196,7 @@ class ShareAccessibilityService : AccessibilityService() {
         private const val CLIPBOARD_READ_MAX_ATTEMPTS = 6
         private const val CLIPBOARD_READ_RETRY_MS = 200L
         private const val USER_CONFIRMATION_TIMEOUT_MS = 30_000L
+        private const val SYSTEM_SHARE_LAUNCH_TIMEOUT_MS = 2_500L
         private const val RESULT_PAGE_LAUNCH_TIMEOUT_MS = 2_500L
         private const val WECHAT_CALLBACK_TIMEOUT_MS = 120_000L
         private val EVENT_INDEPENDENT_STAGES = setOf(
