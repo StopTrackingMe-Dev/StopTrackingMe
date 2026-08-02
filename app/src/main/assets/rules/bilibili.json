@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.bilibili.share-clean",
-      "version": 5,
+      "version": 6,
       "displayName": "哔哩哔哩",
       "source": {
         "kind": "BUILTIN",
@@ -62,7 +62,8 @@
         ],
         "allowedFinalHosts": [
           "bilibili.com",
-          "bilibili.tv"
+          "bilibili.tv",
+          "api.bilibili.com"
         ],
         "maxRedirects": 5,
         "requireHttps": true,
@@ -71,19 +72,45 @@
       },
       "sharePreview": {
         "titleSelectors": [
+          { "type": "JSON_PATH", "key": "data.item.modules.module_dynamic.desc.text" },
+          { "type": "JSON_PATH", "key": "data.item.modules.module_author.name" },
           { "type": "META_PROPERTY", "key": "og:title" },
           { "type": "META_NAME", "key": "twitter:title" },
           { "type": "HTML_TITLE" }
         ],
         "descriptionSelectors": [
+          { "type": "JSON_PATH", "key": "data.item.modules.module_author.name" },
           { "type": "META_PROPERTY", "key": "og:description" },
           { "type": "META_NAME", "key": "description" }
         ],
         "imageSelectors": [
+          { "type": "JSON_PATH", "key": "data.item.modules.module_dynamic.major.draw.items.0.src" },
+          { "type": "JSON_PATH", "key": "data.item.modules.module_author.face" },
           { "type": "META_PROPERTY", "key": "og:image" },
           { "type": "META_NAME", "key": "twitter:image" }
         ],
-        "imageAllowedHosts": ["hdslb.com", "biliimg.com"]
+        "imageAllowedHosts": ["hdslb.com", "biliimg.com"],
+        "pageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml;q=0.9",
+          "Referer": "https://www.bilibili.com/"
+        },
+        "request": {
+          "urlRegex": "^https://www\\.bilibili\\.com/opus/([0-9]+).*$",
+          "urlReplacement": "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?id=$1",
+          "method": "GET",
+          "headers": {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.bilibili.com/"
+          },
+          "formParameters": {},
+          "responseType": "JSON"
+        },
+        "imageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
+          "Referer": "https://www.bilibili.com/"
+        }
       },
       "cleaningPolicy": {
         "removeExact": [

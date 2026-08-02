@@ -34,6 +34,7 @@ import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.preview.SharePreviewLoader
 import app.stoptrackingme.preview.WebSharePreview
+import app.stoptrackingme.preview.copiedTextPreview
 import app.stoptrackingme.rules.ActiveRuleResolution
 import app.stoptrackingme.rules.CopyTriggerMode
 import app.stoptrackingme.rules.CopyTriggerPreferences
@@ -879,12 +880,19 @@ class ShareAccessibilityService : AccessibilityService() {
         val previewRule = installed.rule.sharePreview ?: return
         val worker = Thread {
             val currentWorker = Thread.currentThread()
+            val fallback = copiedTextPreview(
+                sourceName = installed.rule.displayName,
+                sourceText = result.sourceText,
+                urlRegex = installed.rule.clipboardExtraction.urlRegex,
+                defaultHost = cleanedUrl.toUri().host.orEmpty(),
+            )
             val loaded = runCatching {
                 SharePreviewLoader().load(
                     cleanedUrl = cleanedUrl,
                     sourceName = installed.rule.displayName,
                     rule = previewRule,
                     networkPolicy = installed.rule.redirectPolicy,
+                    fallbackText = fallback.description,
                 )
             }
             handler.post {
@@ -895,9 +903,9 @@ class ShareAccessibilityService : AccessibilityService() {
                     return@post
                 }
                 overlayPreviewSessionId = sessionId
-                overlayPreview = loaded.getOrNull()
+                overlayPreview = loaded.getOrElse { fallback }
                 val message = when {
-                    loaded.isFailure -> "链接已净化；微信将使用默认卡片信息"
+                    loaded.isFailure -> "链接已净化；微信卡片已回退为应用复制文案"
                     loaded.getOrNull()?.thumbnail == null -> "链接已净化；网页没有可用封面"
                     else -> "链接和微信卡片已准备完成"
                 }

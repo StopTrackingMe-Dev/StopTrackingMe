@@ -112,4 +112,92 @@ class SharePreviewTest {
         assertNull(preview.thumbnail)
         assertEquals(1, requests)
     }
+
+    @Test
+    fun jsonMetadataParserReadsNestedObjectsAndArrays() {
+        val jsonRule = rule.copy(
+            titleSelectors = listOf(PreviewFieldSelector(PreviewSelectorType.JSON_PATH, "songs.0.name")),
+            descriptionSelectors = listOf(PreviewFieldSelector(PreviewSelectorType.JSON_PATH, "songs.0.artists.0.name")),
+            imageSelectors = listOf(PreviewFieldSelector(PreviewSelectorType.JSON_PATH, "songs.0.album.picUrl")),
+        )
+        val metadata = PageMetadataParser.parse(
+            """{"songs":[{"name":"Track","artists":[{"name":"Artist"}],"album":{"picUrl":"https://cdn.example.com/a.jpg"}}]}""".toByteArray(),
+            URI("https://example.com/song/1"),
+            jsonRule,
+            app.stoptrackingme.rules.PreviewResponseType.JSON,
+        )
+
+        assertEquals("Track", metadata.title)
+        assertEquals("Artist", metadata.description)
+        assertEquals("https://cdn.example.com/a.jpg", metadata.imageUrl)
+    }
+
+    @Test
+    fun tiebaRuleBuildsSignedClientApiRequestFromJson() {
+        val requests = mutableListOf<PreviewFetchRequest>()
+        val client = PreviewResourceClient { request ->
+            requests += request
+            PreviewResource(
+                request.uri,
+                "application/json",
+                """{"post_list":[{"title":"Thread","content":[{"text":"Body"}]}]}""".toByteArray(),
+            )
+        }
+        val siteRule = TestFixtures.builtInRule("baidu-tieba")
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            "https://tieba.baidu.com/p/10909169596",
+            "百度贴吧",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+        )
+
+        assertEquals("【百度贴吧】Thread", preview.title)
+        assertEquals(URI("https://c.tieba.baidu.com/c/f/pb/page"), requests.single().uri)
+        assertEquals(app.stoptrackingme.rules.PreviewHttpMethod.POST, requests.single().method)
+        assertEquals(
+            "_client_type=2&_client_version=12.80.1.0&kz=10909169596&pn=1&rn=10&sign=63158a491c7a47640466c43c3c3ae04a",
+            String(requests.single().body!!),
+        )
+        assertEquals("bdtb for Android 12.80.1.0", requests.single().headers["User-Agent"])
+    }
+
+    @Test
+    fun weiboRuleRunsConfiguredVisitorBootstrapBeforeMetadataRequest() {
+        val requests = mutableListOf<PreviewFetchRequest>()
+        val client = PreviewResourceClient { request ->
+            requests += request
+            when (requests.size) {
+                1 -> PreviewResource(request.uri, "text/javascript", """gen_callback({"data":{"tid":"abc_123"}})""".toByteArray())
+                2 -> PreviewResource(request.uri, "text/javascript", "ok".toByteArray())
+                else -> PreviewResource(request.uri, "application/json", """{"text_raw":"Post","user":{"screen_name":"Author"}}""".toByteArray())
+            }
+        }
+        val siteRule = TestFixtures.builtInRule("weibo")
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            "https://weibo.com/5151579933/5317287198070310",
+            "微博",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+        )
+
+        assertEquals("【微博】Post", preview.title)
+        assertEquals(3, requests.size)
+        assertEquals("passport.weibo.com", requests[0].uri.host)
+        assertTrue(requests[1].uri.query.contains("t=abc_123"))
+        assertEquals("https://weibo.com/ajax/statuses/show?id=5317287198070310", requests[2].uri.toASCIIString())
+    }
+
+    @Test
+    fun copiedTextFallbackRemovesUrlAndKeepsAppCaption() {
+        val preview = copiedTextPreview(
+            "微博",
+            "这是应用自带文案 https://weibo.com/1/2",
+            "https?://[^\\s]+",
+            "weibo.com",
+        )
+
+        assertEquals("【微博】这是应用自带文案", preview.title)
+        assertEquals("这是应用自带文案", preview.description)
+        assertNull(preview.thumbnail)
+    }
 }

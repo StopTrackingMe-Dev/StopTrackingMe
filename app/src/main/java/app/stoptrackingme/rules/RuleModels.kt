@@ -63,6 +63,7 @@ enum class PreviewSelectorType {
     META_PROPERTY,
     META_NAME,
     HTML_TITLE,
+    JSON_PATH,
 }
 
 data class PreviewFieldSelector(
@@ -70,11 +71,44 @@ data class PreviewFieldSelector(
     val key: String?,
 )
 
+enum class PreviewResponseType { HTML, JSON }
+enum class PreviewHttpMethod { GET, POST }
+enum class PreviewSignatureAlgorithm { MD5_CONCAT }
+
+data class PreviewSignatureRule(
+    val algorithm: PreviewSignatureAlgorithm,
+    val parameterName: String,
+    val suffix: String,
+)
+
+data class PreviewRequestRule(
+    val urlRegex: String,
+    val urlReplacement: String,
+    val method: PreviewHttpMethod,
+    val headers: Map<String, String>,
+    val formParameters: Map<String, String>,
+    val signature: PreviewSignatureRule?,
+    val responseType: PreviewResponseType,
+)
+
+data class PreviewBootstrapRule(
+    val tokenUrl: String,
+    val tokenHeaders: Map<String, String>,
+    val tokenFormParameters: Map<String, String>,
+    val tokenRegex: String,
+    val sessionUrlTemplate: String,
+    val sessionHeaders: Map<String, String>,
+)
+
 data class SharePreviewRule(
     val titleSelectors: List<PreviewFieldSelector>,
     val descriptionSelectors: List<PreviewFieldSelector>,
     val imageSelectors: List<PreviewFieldSelector>,
     val imageAllowedHosts: Set<String>,
+    val request: PreviewRequestRule? = null,
+    val bootstrap: PreviewBootstrapRule? = null,
+    val pageRequestHeaders: Map<String, String> = emptyMap(),
+    val imageRequestHeaders: Map<String, String> = emptyMap(),
 )
 
 data class AppRule(

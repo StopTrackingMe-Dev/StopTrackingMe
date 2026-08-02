@@ -76,7 +76,11 @@
           { "type": "META_PROPERTY", "key": "og:image" },
           { "type": "META_NAME", "key": "twitter:image" }
         ],
-        "imageAllowedHosts": ["xhscdn.com"]
+        "imageAllowedHosts": ["xhscdn.com"],
+        "pageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml;q=0.9"
+        }
       },
       "cleaningPolicy": {
         "removeExact": [

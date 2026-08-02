@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.weibo.share-clean",
-      "version": 2,
+      "version": 3,
       "displayName": "微博",
       "source": {
         "kind": "BUILTIN",
@@ -59,7 +59,8 @@
         "shortLinkHosts": [],
         "allowedFinalHosts": [
           "weibo.com",
-          "weibo.cn"
+          "weibo.cn",
+          "passport.weibo.com"
         ],
         "maxRedirects": 5,
         "requireHttps": true,
@@ -68,19 +69,51 @@
       },
       "sharePreview": {
         "titleSelectors": [
-          { "type": "META_PROPERTY", "key": "og:title" },
-          { "type": "META_NAME", "key": "twitter:title" },
-          { "type": "HTML_TITLE" }
+          { "type": "JSON_PATH", "key": "text_raw" },
+          { "type": "JSON_PATH", "key": "page_info.page_title" }
         ],
         "descriptionSelectors": [
-          { "type": "META_PROPERTY", "key": "og:description" },
-          { "type": "META_NAME", "key": "description" }
+          { "type": "JSON_PATH", "key": "user.screen_name" }
         ],
         "imageSelectors": [
-          { "type": "META_PROPERTY", "key": "og:image" },
-          { "type": "META_NAME", "key": "twitter:image" }
+          { "type": "JSON_PATH", "key": "page_info.page_pic" },
+          { "type": "JSON_PATH", "key": "pics.0.large.url" }
         ],
-        "imageAllowedHosts": ["sinaimg.cn"]
+        "imageAllowedHosts": ["sinaimg.cn"],
+        "pageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+        },
+        "request": {
+          "urlRegex": "^https://weibo\\.com/[0-9]+/([0-9]+).*$",
+          "urlReplacement": "https://weibo.com/ajax/statuses/show?id=$1",
+          "method": "GET",
+          "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://weibo.com/"
+          },
+          "formParameters": {},
+          "responseType": "JSON"
+        },
+        "bootstrap": {
+          "tokenUrl": "https://passport.weibo.com/visitor/genvisitor",
+          "tokenHeaders": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Referer": "https://passport.weibo.com/visitor/visitor",
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          "tokenFormParameters": { "cb": "gen_callback" },
+          "tokenRegex": "\\\"tid\\\":\\\"([^\\\"]+)\\\"",
+          "sessionUrlTemplate": "https://passport.weibo.com/visitor/visitor?a=incarnate&t={token}&w=3&c=100&gc=&cb=cross_domain&from=weibo",
+          "sessionHeaders": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Referer": "https://passport.weibo.com/visitor/visitor"
+          }
+        },
+        "imageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+          "Referer": "https://weibo.com/"
+        }
       },
       "cleaningPolicy": {
         "removeExact": [

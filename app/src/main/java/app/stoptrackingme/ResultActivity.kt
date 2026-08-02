@@ -50,6 +50,7 @@ import app.stoptrackingme.preview.PreviewHttpException
 import app.stoptrackingme.preview.PreviewResourceTooLargeException
 import app.stoptrackingme.preview.SharePreviewLoader
 import app.stoptrackingme.preview.WebSharePreview
+import app.stoptrackingme.preview.copiedTextPreview
 import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSession
@@ -172,19 +173,26 @@ class ResultActivity : ComponentActivity() {
         previewing = true
         val requestedSessionId = current.id
         previewJob = lifecycleScope.launch(Dispatchers.IO) {
+            val fallback = copiedTextPreview(
+                sourceName = installed.rule.displayName,
+                sourceText = result.sourceText,
+                urlRegex = installed.rule.clipboardExtraction.urlRegex,
+                defaultHost = Uri.parse(cleanedUrl).host.orEmpty(),
+            )
             val loaded = runCatching {
                 previewLoader.load(
                     cleanedUrl = cleanedUrl,
                     sourceName = installed.rule.displayName,
                     rule = previewRule,
                     networkPolicy = installed.rule.redirectPolicy,
+                    fallbackText = fallback.description,
                 )
             }
             withContext(Dispatchers.Main) {
                 if (ShareSessionStore.get(requestedSessionId)?.id != requestedSessionId) return@withContext
-                sharePreview = loaded.getOrNull()
+                sharePreview = loaded.getOrElse { fallback }
                 previewMessage = if (loaded.isFailure) {
-                    previewFailureMessage(loaded.exceptionOrNull()!!)
+                    previewFailureMessage(loaded.exceptionOrNull()!!) + " 已改用应用复制文案。"
                 } else if (loaded.getOrNull()?.thumbnail == null) {
                     "已读取网页标题和摘要，但没有可用封面。"
                 } else {

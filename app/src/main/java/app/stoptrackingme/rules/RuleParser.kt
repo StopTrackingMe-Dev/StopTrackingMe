@@ -229,6 +229,10 @@ class RuleParser {
             "descriptionSelectors",
             "imageSelectors",
             "imageAllowedHosts",
+            "request",
+            "bootstrap",
+            "pageRequestHeaders",
+            "imageRequestHeaders",
         )
         return SharePreviewRule(
             titleSelectors = parsePreviewSelectors(
@@ -248,7 +252,93 @@ class RuleParser {
             ),
             imageAllowedHosts = json.requiredStringSet("imageAllowedHosts", MAX_HOSTS)
                 .mapTo(linkedSetOf(), ::normalizeHost),
+            request = json.get("request")?.let { parsePreviewRequest(it.requiredObject("request")) },
+            bootstrap = json.get("bootstrap")?.let { parsePreviewBootstrap(it.requiredObject("bootstrap")) },
+            pageRequestHeaders = json.get("pageRequestHeaders")?.let {
+                parseHeaders(it.requiredObject("pageRequestHeaders"))
+            }.orEmpty(),
+            imageRequestHeaders = json.get("imageRequestHeaders")?.let {
+                parseHeaders(it.requiredObject("imageRequestHeaders"))
+            }.orEmpty(),
         )
+    }
+
+    private fun parsePreviewRequest(json: JsonObject): PreviewRequestRule {
+        json.requireOnly(
+            "urlRegex", "urlReplacement", "method", "headers", "formParameters",
+            "signature", "responseType",
+        )
+        val method = enumValue<PreviewHttpMethod>(json.requiredString("method"), "预览请求方法")
+        val form = json.get("formParameters")?.let {
+            parseStringMap(it.requiredObject("formParameters"), MAX_FORM_PARAMETERS, MAX_TEMPLATE_LENGTH)
+        }.orEmpty()
+        if (method == PreviewHttpMethod.GET && form.isNotEmpty()) {
+            throw RuleValidationException("GET 预览请求不能包含表单")
+        }
+        return PreviewRequestRule(
+            urlRegex = json.requiredRegex("urlRegex"),
+            urlReplacement = json.requiredString("urlReplacement")
+                .validatedText("预览 URL 模板", MAX_TEMPLATE_LENGTH),
+            method = method,
+            headers = parseHeaders(json.requiredObject("headers")),
+            formParameters = form,
+            signature = json.get("signature")?.let { parseSignature(it.requiredObject("signature")) },
+            responseType = enumValue(json.requiredString("responseType"), "预览响应类型"),
+        )
+    }
+
+    private fun parseSignature(json: JsonObject): PreviewSignatureRule {
+        json.requireOnly("algorithm", "parameterName", "suffix")
+        val parameterName = json.requiredString("parameterName")
+            .validatedToken("签名参数", MAX_PARAMETER_LENGTH)
+        return PreviewSignatureRule(
+            algorithm = enumValue(json.requiredString("algorithm"), "签名算法"),
+            parameterName = parameterName,
+            suffix = json.requiredString("suffix").validatedText("签名后缀", MAX_HEADER_VALUE_LENGTH),
+        )
+    }
+
+    private fun parsePreviewBootstrap(json: JsonObject): PreviewBootstrapRule {
+        json.requireOnly(
+            "tokenUrl", "tokenHeaders", "tokenFormParameters", "tokenRegex",
+            "sessionUrlTemplate", "sessionHeaders",
+        )
+        return PreviewBootstrapRule(
+            tokenUrl = json.requiredString("tokenUrl").validatedText("访问令牌 URL", MAX_TEMPLATE_LENGTH),
+            tokenHeaders = parseHeaders(json.requiredObject("tokenHeaders")),
+            tokenFormParameters = parseStringMap(
+                json.requiredObject("tokenFormParameters"), MAX_FORM_PARAMETERS, MAX_TEMPLATE_LENGTH,
+            ),
+            tokenRegex = json.requiredRegex("tokenRegex"),
+            sessionUrlTemplate = json.requiredString("sessionUrlTemplate")
+                .validatedText("会话 URL 模板", MAX_TEMPLATE_LENGTH),
+            sessionHeaders = parseHeaders(json.requiredObject("sessionHeaders")),
+        )
+    }
+
+    private fun parseHeaders(json: JsonObject): Map<String, String> =
+        parseStringMap(json, MAX_HEADERS, MAX_HEADER_VALUE_LENGTH).also { headers ->
+            headers.keys.forEach { name ->
+                if (!HEADER_NAME_PATTERN.matches(name)) throw RuleValidationException("HTTP 请求头名称无效")
+            }
+        }
+
+    private fun parseStringMap(json: JsonObject, maxEntries: Int, maxValueLength: Int): Map<String, String> {
+        if (json.size() > maxEntries) throw RuleValidationException("配置对象字段过多")
+        return linkedMapOf<String, String>().also { result ->
+            json.entrySet().forEach { (key, element) ->
+                if (!element.isJsonPrimitive || !element.asJsonPrimitive.isString ||
+                    key.isBlank() || key.length > MAX_HEADER_NAME_LENGTH
+                ) throw RuleValidationException("配置对象必须只包含短字符串")
+                result[key] = element.asString.validatedText("配置值", maxValueLength)
+            }
+        }
+    }
+
+    private inline fun <reified T : Enum<T>> enumValue(value: String, label: String): T = try {
+        enumValueOf<T>(value.uppercase(Locale.ROOT))
+    } catch (error: IllegalArgumentException) {
+        throw RuleValidationException("$label 无效", error)
     }
 
     private fun parsePreviewSelectors(
@@ -276,6 +366,7 @@ class RuleParser {
                 }
                 PreviewSelectorType.META_PROPERTY,
                 PreviewSelectorType.META_NAME,
+                PreviewSelectorType.JSON_PATH,
                 -> {
                     if (key == null || key.length > MAX_PREVIEW_KEY_LENGTH ||
                         !PREVIEW_KEY_PATTERN.matches(key)
@@ -448,6 +539,11 @@ class RuleParser {
         private const val MAX_PARAMETERS = 128
         private const val MAX_PREVIEW_SELECTORS = 8
         private const val MAX_PREVIEW_KEY_LENGTH = 80
+        private const val MAX_HEADERS = 16
+        private const val MAX_FORM_PARAMETERS = 24
+        private const val MAX_HEADER_NAME_LENGTH = 64
+        private const val MAX_HEADER_VALUE_LENGTH = 512
+        private const val MAX_TEMPLATE_LENGTH = 1_024
         private const val MAX_ID_LENGTH = 80
         private const val MAX_NAME_LENGTH = 80
         private const val MAX_SOURCE_LENGTH = 512
@@ -467,6 +563,7 @@ class RuleParser {
         private val TOKEN_PATTERN = Regex("""[A-Za-z0-9._-]+""")
         private val PARAMETER_PATTERN = Regex("""[A-Za-z0-9._~-]+""")
         private val PREVIEW_KEY_PATTERN = Regex("""[A-Za-z0-9._:-]+""")
+        private val HEADER_NAME_PATTERN = Regex("""[A-Za-z0-9!#$%&'*+.^_`|~-]+""")
         private val INTEGER_PATTERN = Regex("""-?(0|[1-9][0-9]*)""")
         private val DANGEROUS_KEYS = listOf(
             "coordinate",

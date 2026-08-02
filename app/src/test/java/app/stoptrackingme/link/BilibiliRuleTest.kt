@@ -12,7 +12,7 @@ class BilibiliRuleTest {
     @Test
     fun copyWaitsForExplicitOverlayConfirmation() {
         assertEquals("tv.danmaku.bili", rule.target.packageName)
-        assertEquals(5, rule.version)
+        assertEquals(6, rule.version)
         assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertTrue(
             rule.copyLinkScrollAnchorSelectors.any {

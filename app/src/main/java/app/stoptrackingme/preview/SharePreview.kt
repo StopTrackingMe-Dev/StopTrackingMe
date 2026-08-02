@@ -9,16 +9,26 @@ import android.graphics.Rect
 import app.stoptrackingme.link.HostPolicy
 import app.stoptrackingme.network.PublicNetworkGuard
 import app.stoptrackingme.rules.PreviewFieldSelector
+import app.stoptrackingme.rules.PreviewHttpMethod
+import app.stoptrackingme.rules.PreviewResponseType
 import app.stoptrackingme.rules.PreviewSelectorType
+import app.stoptrackingme.rules.PreviewSignatureAlgorithm
 import app.stoptrackingme.rules.RedirectPolicy
 import app.stoptrackingme.rules.SharePreviewRule
+import com.google.gson.JsonElement
+import com.google.gson.JsonParser
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Locale
 
 data class WebSharePreview(
@@ -26,6 +36,22 @@ data class WebSharePreview(
     val description: String,
     val thumbnail: ByteArray?,
 )
+
+fun copiedTextPreview(
+    sourceName: String,
+    sourceText: String?,
+    urlRegex: String,
+    defaultHost: String,
+): WebSharePreview {
+    val copiedText = sourceText
+        ?.replace(Regex(urlRegex), " ")
+        ?.replace(Regex("""\s+"""), " ")
+        ?.trim(' ', '-', '—', '|', '：', ':')
+        ?.takeIf { it.isNotBlank() }
+    val titleText = copiedText?.take(180) ?: "网页内容"
+    val description = copiedText?.take(300) ?: "来自 $defaultHost 的净化链接"
+    return WebSharePreview("【$sourceName】$titleText", description, null)
+}
 
 internal data class PageMetadata(
     val title: String?,
@@ -41,6 +67,9 @@ internal data class PreviewFetchRequest(
     val readTimeoutMs: Int,
     val maxBytes: Int,
     val accept: String,
+    val method: PreviewHttpMethod = PreviewHttpMethod.GET,
+    val body: ByteArray? = null,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 internal data class PreviewResource(
@@ -51,6 +80,7 @@ internal data class PreviewResource(
 
 internal fun interface PreviewResourceClient {
     fun fetch(request: PreviewFetchRequest): PreviewResource
+    fun resetSession() = Unit
 }
 
 internal class PreviewResourceTooLargeException(
@@ -64,6 +94,12 @@ internal class PreviewHttpException(
 internal class SafePreviewResourceClient(
     private val networkGuard: PublicNetworkGuard = PublicNetworkGuard(),
 ) : PreviewResourceClient {
+    private var cookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+
+    override fun resetSession() {
+        cookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
+    }
+
     override fun fetch(request: PreviewFetchRequest): PreviewResource {
         var current = request.uri
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
@@ -75,10 +111,19 @@ internal class SafePreviewResourceClient(
                 connection.useCaches = false
                 connection.connectTimeout = request.connectTimeoutMs
                 connection.readTimeout = request.readTimeoutMs
+                connection.requestMethod = request.method.name
                 connection.setRequestProperty("Accept", request.accept)
-                connection.setRequestProperty("User-Agent", USER_AGENT)
-                connection.setRequestProperty("Cookie", "")
+                request.headers.forEach(connection::setRequestProperty)
+                cookies.get(current, emptyMap()).forEach { (name, values) ->
+                    if (values.isNotEmpty()) connection.setRequestProperty(name, values.joinToString("; "))
+                }
+                request.body?.let { body ->
+                    connection.doOutput = true
+                    connection.setFixedLengthStreamingMode(body.size)
+                    connection.outputStream.use { it.write(body) }
+                }
                 val status = connection.responseCode
+                cookies.put(current, connection.headerFields)
                 if (status in REDIRECT_STATUS_CODES) {
                     if (redirectCount >= MAX_REDIRECTS) error("预览资源重定向次数过多")
                     val location = connection.getHeaderField("Location")
@@ -131,19 +176,52 @@ internal class SafePreviewResourceClient(
 
     companion object {
         private const val MAX_REDIRECTS = 3
-        private const val USER_AGENT = "StopTrackingPreview/1"
         private val REDIRECT_STATUS_CODES = setOf(301, 302, 303, 307, 308)
     }
 }
 
 internal object PageMetadataParser {
-    fun parse(bytes: ByteArray, baseUri: URI, rule: SharePreviewRule): PageMetadata {
+    fun parse(
+        bytes: ByteArray,
+        baseUri: URI,
+        rule: SharePreviewRule,
+        responseType: PreviewResponseType = PreviewResponseType.HTML,
+    ): PageMetadata {
+        if (responseType == PreviewResponseType.JSON) return parseJson(bytes, rule)
         val document = Jsoup.parse(ByteArrayInputStream(bytes), null, baseUri.toASCIIString())
         return PageMetadata(
             title = firstValue(document, rule.titleSelectors),
             description = firstValue(document, rule.descriptionSelectors),
             imageUrl = firstValue(document, rule.imageSelectors),
         )
+    }
+
+    private fun parseJson(bytes: ByteArray, rule: SharePreviewRule): PageMetadata {
+        val root = JsonParser.parseString(String(bytes, StandardCharsets.UTF_8))
+        return PageMetadata(
+            title = firstJsonValue(root, rule.titleSelectors),
+            description = firstJsonValue(root, rule.descriptionSelectors),
+            imageUrl = firstJsonValue(root, rule.imageSelectors),
+        )
+    }
+
+    private fun firstJsonValue(root: JsonElement, selectors: List<PreviewFieldSelector>): String? {
+        selectors.filter { it.type == PreviewSelectorType.JSON_PATH }.forEach { selector ->
+            var current = root
+            for (segment in selector.key.orEmpty().split('.')) {
+                current = when {
+                    current.isJsonObject -> current.asJsonObject.get(segment) ?: return@forEach
+                    current.isJsonArray -> segment.toIntOrNull()?.let { index ->
+                        current.asJsonArray.takeIf { index in 0 until it.size() }?.get(index)
+                    } ?: return@forEach
+                    else -> return@forEach
+                }
+            }
+            if (current.isJsonPrimitive && current.asJsonPrimitive.isString) {
+                normalize(current.asString)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun firstValue(document: Document, selectors: List<PreviewFieldSelector>): String? {
@@ -156,6 +234,7 @@ internal object PageMetadataParser {
                 PreviewSelectorType.META_NAME -> document.getElementsByTag("meta")
                     .firstOrNull { it.attr("name").equals(selector.key, ignoreCase = true) }
                     ?.attr("content")
+                PreviewSelectorType.JSON_PATH -> null
             }
             normalize(value)?.let { return it }
         }
@@ -246,8 +325,29 @@ class SharePreviewLoader internal constructor(
         sourceName: String,
         rule: SharePreviewRule,
         networkPolicy: RedirectPolicy,
+        fallbackText: String? = null,
     ): WebSharePreview {
-        val pageUri = URI(cleanedUrl)
+        client.resetSession()
+        val configuredRequest = rule.request?.takeIf {
+            Regex(it.urlRegex).containsMatchIn(cleanedUrl)
+        }
+        if (configuredRequest != null) runBootstrap(rule, networkPolicy)
+        val pageUri = URI(
+            configuredRequest?.let { transform(cleanedUrl, it.urlRegex, it.urlReplacement) }
+                ?: cleanedUrl,
+        )
+        val formParameters = configuredRequest?.formParameters.orEmpty().mapValues { (_, value) ->
+            transform(cleanedUrl, configuredRequest!!.urlRegex, value)
+        }.toMutableMap()
+        configuredRequest?.signature?.let { signature ->
+            val material = formParameters.entries.joinToString("") { "${it.key}=${it.value}" } + signature.suffix
+            formParameters[signature.parameterName] = when (signature.algorithm) {
+                PreviewSignatureAlgorithm.MD5_CONCAT -> md5(material)
+            }
+        }
+        val body = formParameters.takeIf { it.isNotEmpty() }?.entries?.joinToString("&") { (key, value) ->
+            "${encode(key)}=${encode(value)}"
+        }?.toByteArray(StandardCharsets.UTF_8)
         val page = client.fetch(
             PreviewFetchRequest(
                 uri = pageUri,
@@ -257,14 +357,23 @@ class SharePreviewLoader internal constructor(
                 readTimeoutMs = networkPolicy.readTimeoutMs,
                 maxBytes = MAX_HTML_BYTES,
                 accept = "text/html,application/xhtml+xml;q=0.9",
+                method = configuredRequest?.method ?: PreviewHttpMethod.GET,
+                body = body,
+                headers = configuredRequest?.headers ?: rule.pageRequestHeaders,
             ),
         )
-        if (page.contentType != null && page.contentType !in HTML_CONTENT_TYPES) {
+        val responseType = configuredRequest?.responseType ?: PreviewResponseType.HTML
+        if (responseType == PreviewResponseType.HTML &&
+            page.contentType != null && page.contentType !in HTML_CONTENT_TYPES
+        ) {
             error("目标页面不是 HTML")
         }
-        val metadata = PageMetadataParser.parse(page.bytes, page.finalUri, rule)
-        val title = metadata.title?.take(MAX_TITLE_CHARS) ?: "网页内容"
+        val metadata = PageMetadataParser.parse(page.bytes, page.finalUri, rule, responseType)
+        val title = metadata.title?.take(MAX_TITLE_CHARS)
+            ?: fallbackText?.take(MAX_TITLE_CHARS)
+            ?: "网页内容"
         val description = metadata.description?.take(MAX_DESCRIPTION_CHARS)
+            ?: fallbackText?.take(MAX_DESCRIPTION_CHARS)
             ?: "来自 ${page.finalUri.host} 的净化链接"
         val thumbnail = loadThumbnail(metadata.imageUrl, page.finalUri, rule, networkPolicy)
         return WebSharePreview(
@@ -273,6 +382,53 @@ class SharePreviewLoader internal constructor(
             thumbnail = thumbnail,
         )
     }
+
+    private fun runBootstrap(rule: SharePreviewRule, networkPolicy: RedirectPolicy) {
+        val bootstrap = rule.bootstrap ?: return
+        val tokenBody = bootstrap.tokenFormParameters.entries.joinToString("&") { (key, value) ->
+            "${encode(key)}=${encode(value)}"
+        }.toByteArray(StandardCharsets.UTF_8)
+        val tokenResponse = client.fetch(
+            PreviewFetchRequest(
+                uri = URI(bootstrap.tokenUrl),
+                allowedHosts = networkPolicy.allowedFinalHosts,
+                requireHttps = networkPolicy.requireHttps,
+                connectTimeoutMs = networkPolicy.connectTimeoutMs,
+                readTimeoutMs = networkPolicy.readTimeoutMs,
+                maxBytes = 128 * 1024,
+                accept = "*/*",
+                method = PreviewHttpMethod.POST,
+                body = tokenBody,
+                headers = bootstrap.tokenHeaders,
+            ),
+        )
+        val token = Regex(bootstrap.tokenRegex)
+            .find(String(tokenResponse.bytes, StandardCharsets.UTF_8))
+            ?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+            ?: error("Preview session token could not be parsed")
+        client.fetch(
+            PreviewFetchRequest(
+                uri = URI(bootstrap.sessionUrlTemplate.replace("{token}", encode(token))),
+                allowedHosts = networkPolicy.allowedFinalHosts,
+                requireHttps = networkPolicy.requireHttps,
+                connectTimeoutMs = networkPolicy.connectTimeoutMs,
+                readTimeoutMs = networkPolicy.readTimeoutMs,
+                maxBytes = 128 * 1024,
+                accept = "*/*",
+                headers = bootstrap.sessionHeaders,
+            ),
+        )
+    }
+
+    private fun transform(input: String, regex: String, replacement: String): String =
+        Regex(regex).replaceFirst(input, replacement)
+
+    private fun encode(value: String): String =
+        URLEncoder.encode(value, StandardCharsets.UTF_8.name()).replace("+", "%20")
+
+    private fun md5(value: String): String = MessageDigest.getInstance("MD5")
+        .digest(value.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun loadThumbnail(
         imageUrl: String?,
@@ -286,18 +442,24 @@ class SharePreviewLoader internal constructor(
         } catch (_: Exception) {
             return null
         }
+        val secureImageUri = if (networkPolicy.requireHttps && imageUri.scheme.equals("http", true)) {
+            URI("https", imageUri.userInfo, imageUri.host, imageUri.port, imageUri.path, imageUri.query, imageUri.fragment)
+        } else {
+            imageUri
+        }
         val allowedHosts = networkPolicy.allowedFinalHosts + rule.imageAllowedHosts
-        if (!HostPolicy.isAllowed(imageUri.host, allowedHosts)) return null
+        if (!HostPolicy.isAllowed(secureImageUri.host, allowedHosts)) return null
         return try {
             val image = client.fetch(
                 PreviewFetchRequest(
-                    uri = imageUri,
+                    uri = secureImageUri,
                     allowedHosts = allowedHosts,
                     requireHttps = networkPolicy.requireHttps,
                     connectTimeoutMs = networkPolicy.connectTimeoutMs,
                     readTimeoutMs = networkPolicy.readTimeoutMs,
                     maxBytes = MAX_IMAGE_BYTES,
                     accept = "image/avif,image/webp,image/png,image/jpeg;q=0.9",
+                    headers = rule.imageRequestHeaders.ifEmpty { rule.pageRequestHeaders },
                 ),
             )
             if (image.contentType?.startsWith("image/") != true ||
