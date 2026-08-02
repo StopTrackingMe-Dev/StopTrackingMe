@@ -47,19 +47,18 @@ object OverlayPlacementCalculator {
             ?.coerceIn(safeBounds.top, safeBounds.bottom)
             ?.minus(margin)
         if (availableBottom != null) {
-            val cardY = availableBottom - cardHeight
+            val cardY = safeBounds.top + margin
             val cardRect = IntRect(cardX, cardY, cardX + boundedCardWidth, cardY + cardHeight)
-            if (cardY >= safeBounds.top + margin && avoidBounds.none { cardRect.intersectArea(it) > 0 }) {
+            if (cardRect.bottom <= availableBottom &&
+                avoidBounds.none { cardRect.intersectArea(it) > 0 }
+            ) {
                 return OverlayPlacement(OverlayForm.CARD, cardX, cardY)
             }
         }
 
         val maxX = max(safeBounds.left, safeBounds.right - bubbleSize)
         val maxY = max(safeBounds.top, safeBounds.bottom - bubbleSize)
-        val preferredY = panelTop
-            ?.minus(bubbleSize + margin)
-            ?.coerceIn(safeBounds.top, maxY)
-            ?: (safeBounds.top + margin).coerceAtMost(maxY)
+        val preferredY = (safeBounds.top + margin).coerceAtMost(maxY)
         val middleY = (safeBounds.top + (safeBounds.height - bubbleSize) / 2)
             .coerceIn(safeBounds.top, maxY)
         val candidates = listOf(

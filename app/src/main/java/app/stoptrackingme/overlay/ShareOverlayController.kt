@@ -49,6 +49,7 @@ class ShareOverlayController(
     private var panelTop: Int? = null
     private var avoidBounds: List<IntRect> = emptyList()
     private var draggedBubblePosition: Pair<Int, Int>? = null
+    private var draggedCardPosition: Pair<Int, Int>? = null
     private var userCollapsed = false
 
     val activeSessionId: String?
@@ -64,6 +65,7 @@ class ShareOverlayController(
             forceExpanded = false,
         )
         draggedBubblePosition = null
+        draggedCardPosition = null
         userCollapsed = false
         return render()
     }
@@ -76,7 +78,10 @@ class ShareOverlayController(
         status: String,
     ): Boolean {
         val keepCollapsed = model?.sessionId == sessionId && userCollapsed
-        if (model?.sessionId != sessionId) draggedBubblePosition = null
+        if (model?.sessionId != sessionId) {
+            draggedBubblePosition = null
+            draggedCardPosition = null
+        }
         model = OverlayModel(
             sessionId = sessionId,
             title = if (result.isSuccess) "$sourceName · 净化完成" else "$sourceName · 未能净化链接",
@@ -134,6 +139,7 @@ class ShareOverlayController(
         panelTop = null
         avoidBounds = emptyList()
         draggedBubblePosition = null
+        draggedCardPosition = null
         userCollapsed = false
     }
 
@@ -141,6 +147,7 @@ class ShareOverlayController(
         @Suppress("UNUSED_VARIABLE")
         val ignored = newConfig
         draggedBubblePosition = null
+        draggedCardPosition = null
         if (attachedView != null) render()
     }
 
@@ -172,10 +179,16 @@ class ShareOverlayController(
         val position: Pair<Int, Int>
         if (showCard) {
             view = provisionalCard
-            position = if (calculated.form == OverlayForm.CARD) {
+            val defaultPosition = if (calculated.form == OverlayForm.CARD) {
                 calculated.x to calculated.y
             } else {
                 bestEffortCardPosition(safeBounds, cardWidth, cardHeight, margin)
+            }
+            position = draggedCardPosition?.let { (x, y) ->
+                OverlayPlacementCalculator.clamp(safeBounds, x, y, cardWidth, cardHeight)
+            } ?: defaultPosition
+            view.findViewWithTag<View>(DRAG_HANDLE_TAG)?.let { handle ->
+                installCardDrag(handle, safeBounds, cardWidth, cardHeight)
             }
         } else {
             view = createBubble(current, bubbleSize)
@@ -217,7 +230,12 @@ class ShareOverlayController(
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(textView(current.title, 17f, foreground, bold = true), weighted())
+        header.addView(textView("拖动  ${current.title}", 17f, foreground, bold = true).apply {
+            tag = DRAG_HANDLE_TAG
+            contentDescription = "拖动悬浮窗：${current.title}"
+            isClickable = true
+            isFocusable = true
+        }, weighted())
         header.addView(smallButton("收起") {
             model = model?.copy(forceExpanded = false)
             userCollapsed = true
@@ -355,6 +373,54 @@ class ShareOverlayController(
         }
     }
 
+    private fun installCardDrag(
+        handle: View,
+        safeBounds: IntRect,
+        width: Int,
+        height: Int,
+    ) {
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        var moved = false
+        handle.setOnClickListener { }
+        handle.setOnTouchListener { _, event ->
+            val params = attachedParams
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params?.x ?: draggedCardPosition?.first ?: 0
+                    startY = params?.y ?: draggedCardPosition?.second ?: 0
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - downRawX).roundToInt()
+                    val dy = (event.rawY - downRawY).roundToInt()
+                    if (abs(dx) > dp(DRAG_SLOP_DP) || abs(dy) > dp(DRAG_SLOP_DP)) moved = true
+                    val clamped = OverlayPlacementCalculator.clamp(
+                        safeBounds,
+                        startX + dx,
+                        startY + dy,
+                        width,
+                        height,
+                    )
+                    draggedCardPosition = clamped
+                    updateAttachedPosition(clamped.first, clamped.second)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) handle.performClick()
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
+    }
+
     private fun attachView(view: View, x: Int, y: Int): Boolean {
         detachView()
         val params = WindowManager.LayoutParams(
@@ -464,17 +530,9 @@ class ShareOverlayController(
         val width = cardWidth.coerceAtMost(safeBounds.width)
         val height = cardHeight.coerceAtMost(safeBounds.height)
         val x = safeBounds.left + (safeBounds.width - width) / 2
-        val maxY = (safeBounds.bottom - height).coerceAtLeast(safeBounds.top)
-        val candidates = listOfNotNull(
-            (safeBounds.top + margin).coerceAtMost(maxY),
-            panelTop?.minus(height + margin)?.coerceIn(safeBounds.top, maxY),
-            maxY - margin.coerceAtMost(maxY - safeBounds.top),
-        ).distinct()
-        val y = candidates.minByOrNull { candidateY ->
-            val rect = IntRect(x, candidateY, x + width, candidateY + height)
-            avoidBounds.sumOf { rect.intersectArea(it) }
-        } ?: safeBounds.top
-        return x to y
+        val y = (safeBounds.top + margin)
+            .coerceAtMost((safeBounds.bottom - height).coerceAtLeast(safeBounds.top))
+        return OverlayPlacementCalculator.clamp(safeBounds, x, y, width, height)
     }
 
     private fun action(sessionId: String, action: ShareOverlayAction) {
@@ -570,5 +628,6 @@ class ShareOverlayController(
         const val BUBBLE_SIZE_DP = 52
         const val EDGE_MARGIN_DP = 12
         const val DRAG_SLOP_DP = 6
+        const val DRAG_HANDLE_TAG = "share_overlay_drag_handle"
     }
 }

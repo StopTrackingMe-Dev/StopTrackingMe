@@ -598,7 +598,7 @@ private fun ServiceCard(
             )
             PresentationModeChoice(
                 selected = resultPresentationMode == ResultPresentationMode.ACCESSIBILITY_OVERLAY,
-                label = "在来源应用上显示悬浮窗",
+                label = "仅显示悬浮窗（不自动跳转结果页）",
                 onClick = {
                     onResultPresentationModeChange(ResultPresentationMode.ACCESSIBILITY_OVERLAY)
                 },

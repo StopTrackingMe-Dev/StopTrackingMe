@@ -658,14 +658,20 @@ class ShareAccessibilityService : AccessibilityService() {
             }
             OverlayCompletionAction.RESTORE_CANCELLED -> {
                 val restored = overlayController.restore(pending.sessionId, "已取消微信分享，可以重新选择")
-                if (!restored) fallbackToResultPage(pending.sessionId)
-                ServiceStatus.update(this, "已取消微信分享，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                if (restored) {
+                    ServiceStatus.update(this, "已取消微信分享，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                } else {
+                    finishOverlaySession(pending.sessionId, "悬浮窗恢复失败，本次会话已结束")
+                }
                 true
             }
             OverlayCompletionAction.RESTORE_FAILED -> {
                 val restored = overlayController.restore(pending.sessionId, "微信分享失败，可以重试")
-                if (!restored) fallbackToResultPage(pending.sessionId)
-                ServiceStatus.update(this, "微信分享失败，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                if (restored) {
+                    ServiceStatus.update(this, "微信分享失败，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                } else {
+                    finishOverlaySession(pending.sessionId, "悬浮窗恢复失败，本次会话已结束")
+                }
                 true
             }
             OverlayCompletionAction.IGNORE -> false
@@ -697,17 +703,6 @@ class ShareAccessibilityService : AccessibilityService() {
                 .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
-    }
-
-    private fun fallbackToResultPage(sessionId: String) {
-        val error = runCatching { launchResultPage(sessionId) }.exceptionOrNull()
-        if (error == null) {
-            cancelOverlayWorkers()
-            overlayController.remove(sessionId)
-        } else {
-            if (isDebugBuild) Log.w(TAG, "Unable to restore overlay or result page", error)
-            finishOverlaySession(sessionId, "无法恢复分享结果，本次会话已结束")
-        }
     }
 
     private fun finishOverlaySession(sessionId: String, message: String) {

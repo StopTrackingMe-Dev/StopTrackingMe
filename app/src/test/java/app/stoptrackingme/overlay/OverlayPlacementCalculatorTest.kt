@@ -1,12 +1,11 @@
 package app.stoptrackingme.overlay
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OverlayPlacementCalculatorTest {
     @Test
-    fun `places card immediately above detected share panel`() {
+    fun `places card at safe top while remaining above detected share panel`() {
         val placement = OverlayPlacementCalculator.calculate(
             safeBounds = IntRect(0, 80, 1080, 2320),
             panelTop = 1500,
@@ -19,7 +18,7 @@ class OverlayPlacementCalculatorTest {
 
         assertEquals(OverlayForm.CARD, placement.form)
         assertEquals(90, placement.x)
-        assertEquals(1056, placement.y)
+        assertEquals(104, placement.y)
     }
 
     @Test
@@ -53,7 +52,7 @@ class OverlayPlacementCalculatorTest {
 
         assertEquals(OverlayForm.BUBBLE, placement.form)
         assertEquals(0, placement.x)
-        assertTrue(placement.y in 0..1700)
+        assertEquals(20, placement.y)
     }
 
     @Test

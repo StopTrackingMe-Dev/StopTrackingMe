@@ -14,7 +14,6 @@ import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.LinkProcessingStage
 import app.stoptrackingme.overlay.ShareOverlayCoordinator
 import app.stoptrackingme.overlay.ShareOverlayEvent
-import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.ProcessingFailure
@@ -153,10 +152,18 @@ class ClipboardCaptureActivity : Activity() {
     }
 
     private fun presentResult() {
-        val overlayHandled =
-            ResultPresentationPreferences.get(this) == ResultPresentationMode.ACCESSIBILITY_OVERLAY &&
-                ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultReady(sessionId))
-        if (overlayHandled) return
+        val presentationMode = ResultPresentationPreferences.get(this)
+        if (!presentationMode.opensResultActivityAutomatically) {
+            val handled = ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultReady(sessionId))
+            if (!handled) {
+                ServiceStatus.update(
+                    this,
+                    "悬浮窗显示失败；已停止自动跳转，请重新分享或手动打开应用",
+                    AutomationStage.SHOW_RESULT,
+                )
+            }
+            return
+        }
         startActivity(
             Intent(this, ResultActivity::class.java)
                 .putExtra(ResultActivity.EXTRA_SESSION_ID, sessionId),

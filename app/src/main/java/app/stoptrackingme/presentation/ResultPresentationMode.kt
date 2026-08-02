@@ -8,6 +8,9 @@ enum class ResultPresentationMode {
     ACCESSIBILITY_OVERLAY,
     ;
 
+    val opensResultActivityAutomatically: Boolean
+        get() = this == APP_PAGE
+
     companion object {
         fun fromStored(value: String?): ResultPresentationMode =
             entries.firstOrNull { it.name == value } ?: APP_PAGE

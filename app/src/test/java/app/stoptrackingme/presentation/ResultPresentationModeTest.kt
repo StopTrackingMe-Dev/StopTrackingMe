@@ -1,6 +1,8 @@
 package app.stoptrackingme.presentation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResultPresentationModeTest {
@@ -16,5 +18,11 @@ class ResultPresentationModeTest {
             ResultPresentationMode.ACCESSIBILITY_OVERLAY,
             ResultPresentationMode.fromStored(ResultPresentationMode.ACCESSIBILITY_OVERLAY.name),
         )
+    }
+
+    @Test
+    fun `only app page mode opens result activity automatically`() {
+        assertTrue(ResultPresentationMode.APP_PAGE.opensResultActivityAutomatically)
+        assertFalse(ResultPresentationMode.ACCESSIBILITY_OVERLAY.opensResultActivityAutomatically)
     }
 }
