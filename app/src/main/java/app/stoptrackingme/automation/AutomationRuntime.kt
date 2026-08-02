@@ -29,12 +29,14 @@ object AutomationRuntime {
     private val lock = Any()
     private var snapshot = idle()
 
+    /** Starts a task only when idle or when an earlier result has been left unclosed. */
     fun start(
         sessionId: String,
         ruleKey: String,
         sourcePackage: String,
         deadlineMillis: Long,
-    ): AutomationSnapshot = synchronized(lock) {
+    ): AutomationSnapshot? = synchronized(lock) {
+        if (snapshot.stage !in startableStages) return@synchronized null
         snapshot = AutomationSnapshot(
             sessionId = sessionId,
             ruleKey = ruleKey,
@@ -132,5 +134,10 @@ object AutomationRuntime {
         deadlineMillis = 0L,
         scrollAttempted = false,
         clickAttempted = false,
+    )
+
+    private val startableStages = setOf(
+        AutomationStage.IDLE,
+        AutomationStage.SHOW_RESULT,
     )
 }

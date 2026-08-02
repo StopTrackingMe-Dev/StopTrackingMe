@@ -57,6 +57,35 @@ class AutomationRuntimeTest {
     }
 
     @Test
+    fun delayedShareClickCannotReplaceTaskWaitingForCapture() {
+        AutomationRuntime.start("first", "rule", "source.app", 1_000)
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.FIND_COPY))
+        assertTrue(AutomationRuntime.markClickAttempt("first"))
+
+        val replacement = AutomationRuntime.start("second", "rule", "source.app", 2_000)
+
+        assertEquals(null, replacement)
+        assertEquals("first", AutomationRuntime.current().sessionId)
+        assertEquals(AutomationStage.CLICK_ONCE, AutomationRuntime.current().stage)
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.CAPTURE))
+    }
+
+    @Test
+    fun leavingResultVisibleStillAllowsNextShareTask() {
+        AutomationRuntime.start("first", "rule", "source.app", 1_000)
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.FIND_COPY))
+        assertTrue(AutomationRuntime.markClickAttempt("first"))
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.CAPTURE))
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.EXTRACT))
+        assertTrue(AutomationRuntime.transition("first", AutomationStage.SHOW_RESULT))
+
+        val replacement = AutomationRuntime.start("second", "rule", "source.app", 2_000)
+
+        assertEquals("second", replacement?.sessionId)
+        assertEquals(AutomationStage.SHARE_TRIGGERED, AutomationRuntime.current().stage)
+    }
+
+    @Test
     fun transientUiPackageExemptionsStayNarrow() {
         assertTrue(AutomationSafety.isTransientUiPackage("com.android.systemui"))
         assertTrue(AutomationSafety.isTransientUiPackage("com.huawei.intelligent"))

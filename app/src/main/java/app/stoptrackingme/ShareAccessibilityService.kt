@@ -49,6 +49,13 @@ class ShareAccessibilityService : AccessibilityService() {
         if (eventPackage.isBlank() || eventPackage == packageName) return
 
         val stageBeforeEvent = AutomationRuntime.current().stage
+        if (stageBeforeEvent in EVENT_INDEPENDENT_STAGES) {
+            // Once the only permitted click has been attempted, no later accessibility event is
+            // needed to finish the task. Bilibili can emit a large backlog of content changes and
+            // even a delayed duplicate share click here; consuming it could starve the capture
+            // callback or replace its session just as the clipboard settles.
+            return
+        }
         if (isDebugBuild && stageBeforeEvent != AutomationStage.IDLE) {
             Log.d(
                 TAG,
@@ -148,20 +155,24 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun beginTask(installed: InstalledRule, fallback: Boolean = false) {
-        fallbackPanelLatch += installed.rule.target.packageName
         val oldSessionId = AutomationRuntime.current().sessionId
-        if (oldSessionId != null) ShareSessionStore.clear(oldSessionId)
         val sessionId = ShareSessionStore.begin(
             ruleKey = installed.key,
             sourcePackage = installed.rule.target.packageName,
         )
         val deadline = System.currentTimeMillis() + installed.rule.sharePanelTimeoutMs
-        AutomationRuntime.start(
+        val started = AutomationRuntime.start(
             sessionId = sessionId,
             ruleKey = installed.key,
             sourcePackage = installed.rule.target.packageName,
             deadlineMillis = deadline,
         )
+        if (started == null) {
+            ShareSessionStore.clear(sessionId)
+            return
+        }
+        fallbackPanelLatch += installed.rule.target.packageName
+        if (oldSessionId != null) ShareSessionStore.clear(oldSessionId)
         ServiceStatus.update(
             this,
             if (fallback) {
@@ -389,5 +400,12 @@ class ShareAccessibilityService : AccessibilityService() {
         private const val LAUNCH_BRIDGE_SETTLE_MS = 100L
         private const val LAUNCH_BRIDGE_LIFETIME_MS = 1_500L
         private const val CAPTURE_LAUNCH_WATCHDOG_MS = 2_500L
+        private val EVENT_INDEPENDENT_STAGES = setOf(
+            AutomationStage.CLICK_ONCE,
+            AutomationStage.CAPTURE,
+            AutomationStage.EXTRACT,
+            AutomationStage.RESOLVE,
+            AutomationStage.CLEAN,
+        )
     }
 }
