@@ -18,6 +18,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -37,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -115,132 +119,168 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-                    Column(
-                        modifier = Modifier
-                            .padding(padding)
-                            .padding(20.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Text("净链分享助手", style = MaterialTheme.typography.headlineMedium)
-                        Text("可从剪贴板、网页链接或无障碍分享操作中净化链接；打开或分享前始终由你确认。")
+                var selectedSectionName by rememberSaveable {
+                    mutableStateOf(MainSection.HOME.name)
+                }
+                val selectedSection = MainSection.valueOf(selectedSectionName)
 
-                        ManualEntryCard(
-                            enabled = !busy,
-                            onReadClipboard = ::readClipboard,
-                            onRequestBrowserRole = ::requestDefaultBrowserRole,
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        MainBottomBar(
+                            selectedSection = selectedSection,
+                            onSectionSelected = { selectedSectionName = it.name },
                         )
+                    },
+                ) { padding ->
+                    when (selectedSection) {
+                        MainSection.HOME -> MainPage(modifier = Modifier.padding(padding)) {
+                            Text("净链分享助手", style = MaterialTheme.typography.headlineMedium)
+                            Text("快速启用自动净链，或直接处理剪贴板中的分享链接。")
+                            OperationMessage(operationMessage)
 
-                        ServiceCard(
-                            enabled = serviceEnabled,
-                            status = serviceState,
-                            resultPresentationMode = resultPresentationMode,
-                            onOpenSettings = {
-                                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                            },
-                            onResultPresentationModeChange = { mode ->
-                                ResultPresentationPreferences.set(this@MainActivity, mode)
-                                resultPresentationMode = mode
-                            },
-                        )
+                            AccessibilityServiceCard(
+                                enabled = serviceEnabled,
+                                status = serviceState,
+                                onOpenSettings = {
+                                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                },
+                            )
 
-                        QQSdkPrivacyCard(
-                            consentGranted = qqSdkConsentGranted,
-                            onOpenPolicy = {
-                                openExternalLink(
-                                    QQSdkConsent.PRIVACY_POLICY_URL,
-                                    "查看 QQ 互联 SDK 隐私说明",
-                                )
-                            },
-                            onRevoke = {
-                                QQSdkConsent.revoke(this@MainActivity)
-                                qqSdkConsentGranted = false
-                                operationMessage = "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
-                            },
-                        )
+                            ClipboardEntryCard(
+                                enabled = !busy,
+                                onReadClipboard = ::readClipboard,
+                            )
+                        }
 
-                        UsageReportingPrivacyCard(
-                            consent = usageReportingConsent,
-                            onOpenPolicy = {
-                                openExternalLink(
-                                    UsageReporter.PRIVACY_POLICY_URL,
-                                    "查看完整隐私政策",
-                                )
-                            },
-                            onGrant = ::grantUsageReporting,
-                            onDeny = ::denyUsageReporting,
-                        )
+                        MainSection.RULES -> MainPage(modifier = Modifier.padding(padding)) {
+                            Text("规则", style = MaterialTheme.typography.headlineMedium)
+                            Text("查看当前支持的规则，并在这里集中管理导入与订阅。")
+                            OperationMessage(operationMessage)
 
-                        RuleCatalogSection(
-                            catalog = catalog,
-                            compatibleRules = repository::compatibleInstalledRules,
-                            resolution = repository::resolveActiveRule,
-                            copyTriggerMode = { installed ->
-                                copyTriggerModes[installed.key] ?: installed.rule.copyTriggerMode
-                            },
-                            onSelectRule = { packageName, key ->
-                                repository.chooseActiveRule(packageName, key)
-                                reloadCatalog()
-                                operationMessage = "已选择唯一活动规则"
-                            },
-                            onCopyTriggerModeChange = { installed, mode ->
-                                CopyTriggerPreferences.set(this@MainActivity, installed, mode)
-                                copyTriggerModes = copyTriggerModes + (installed.key to mode)
-                                operationMessage = when (mode) {
-                                    CopyTriggerMode.AUTOMATIC ->
-                                        "${installed.rule.displayName} 将自动复制并净化链接"
-                                    CopyTriggerMode.USER_CONFIRMATION ->
-                                        "${installed.rule.displayName} 将等待你点击悬浮按钮后再复制"
+                            RuleCatalogSection(
+                                catalog = catalog,
+                                compatibleRules = repository::compatibleInstalledRules,
+                                resolution = repository::resolveActiveRule,
+                                copyTriggerMode = { installed ->
+                                    copyTriggerModes[installed.key]
+                                        ?: installed.rule.copyTriggerMode
+                                },
+                                onSelectRule = { packageName, key ->
+                                    repository.chooseActiveRule(packageName, key)
+                                    reloadCatalog()
+                                    operationMessage = "已选择唯一活动规则"
+                                },
+                                onCopyTriggerModeChange = { installed, mode ->
+                                    CopyTriggerPreferences.set(this@MainActivity, installed, mode)
+                                    copyTriggerModes = copyTriggerModes + (installed.key to mode)
+                                    operationMessage = when (mode) {
+                                        CopyTriggerMode.AUTOMATIC ->
+                                            "${installed.rule.displayName} 将自动复制并净化链接"
+                                        CopyTriggerMode.USER_CONFIRMATION ->
+                                            "${installed.rule.displayName} 将等待你点击悬浮按钮后再复制"
+                                    }
+                                },
+                            )
+
+                            Text("规则订阅", style = MaterialTheme.typography.titleLarge)
+                            Text("可从本地导入规则，或添加需要手动刷新的 HTTPS 订阅。")
+                            OutlinedButton(
+                                onClick = {
+                                    importRuleDocument.launch(
+                                        arrayOf("application/json", "text/json"),
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("从本地导入 JSON")
+                            }
+                            OutlinedTextField(
+                                value = remoteUrl,
+                                onValueChange = { remoteUrl = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("HTTPS 规则订阅地址") },
+                                singleLine = true,
+                            )
+                            Button(
+                                onClick = ::previewSubscription,
+                                enabled = !busy && remoteUrl.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (busy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.padding(2.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Text("下载预览并确认信任")
                                 }
-                            },
-                        )
+                            }
 
-                        Text("添加规则", style = MaterialTheme.typography.titleLarge)
-                        OutlinedButton(
-                            onClick = { importRuleDocument.launch(arrayOf("application/json", "text/json")) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("从本地导入 JSON")
-                        }
-                        OutlinedTextField(
-                            value = remoteUrl,
-                            onValueChange = { remoteUrl = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("HTTPS 规则订阅地址") },
-                            singleLine = true,
-                        )
-                        Button(
-                            onClick = ::previewSubscription,
-                            enabled = !busy && remoteUrl.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (busy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.padding(2.dp),
-                                    strokeWidth = 2.dp,
+                            if (catalog.subscriptions.isNotEmpty()) {
+                                Text(
+                                    "已有远程订阅",
+                                    style = MaterialTheme.typography.titleMedium,
                                 )
-                            } else {
-                                Text("下载预览并确认信任")
+                                catalog.subscriptions.forEach { url ->
+                                    SubscriptionRow(
+                                        url = url,
+                                        enabled = !busy,
+                                        onRefresh = { refreshSubscription(url) },
+                                    )
+                                }
+                            }
+
+                            catalog.loadErrors.forEach {
+                                Text("规则错误：$it", color = MaterialTheme.colorScheme.error)
                             }
                         }
 
-                        if (catalog.subscriptions.isNotEmpty()) {
-                            Text("远程订阅（仅手动刷新）", style = MaterialTheme.typography.titleLarge)
-                            catalog.subscriptions.forEach { url ->
-                                SubscriptionRow(
-                                    url = url,
-                                    enabled = !busy,
-                                    onRefresh = { refreshSubscription(url) },
-                                )
-                            }
-                        }
+                        MainSection.SETTINGS -> MainPage(modifier = Modifier.padding(padding)) {
+                            Text("设置", style = MaterialTheme.typography.headlineMedium)
+                            Text("管理链接打开方式、自动化结果显示和隐私选项。")
+                            OperationMessage(operationMessage)
 
-                        operationMessage?.let {
-                            Text(it, color = MaterialTheme.colorScheme.primary)
-                        }
-                        catalog.loadErrors.forEach {
-                            Text("规则错误：$it", color = MaterialTheme.colorScheme.error)
+                            DefaultBrowserCard(
+                                enabled = !busy,
+                                onRequestBrowserRole = ::requestDefaultBrowserRole,
+                            )
+
+                            ResultPresentationCard(
+                                resultPresentationMode = resultPresentationMode,
+                                onResultPresentationModeChange = { mode ->
+                                    ResultPresentationPreferences.set(this@MainActivity, mode)
+                                    resultPresentationMode = mode
+                                },
+                            )
+
+                            QQSdkPrivacyCard(
+                                consentGranted = qqSdkConsentGranted,
+                                onOpenPolicy = {
+                                    openExternalLink(
+                                        QQSdkConsent.PRIVACY_POLICY_URL,
+                                        "查看 QQ 互联 SDK 隐私说明",
+                                    )
+                                },
+                                onRevoke = {
+                                    QQSdkConsent.revoke(this@MainActivity)
+                                    qqSdkConsentGranted = false
+                                    operationMessage =
+                                        "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
+                                },
+                            )
+
+                            UsageReportingPrivacyCard(
+                                consent = usageReportingConsent,
+                                onOpenPolicy = {
+                                    openExternalLink(
+                                        UsageReporter.PRIVACY_POLICY_URL,
+                                        "查看完整隐私政策",
+                                    )
+                                },
+                                onGrant = ::grantUsageReporting,
+                                onDeny = ::denyUsageReporting,
+                            )
                         }
                     }
                 }
@@ -623,6 +663,57 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class MainSection(
+    val label: String,
+    val symbol: String,
+) {
+    HOME("首页", "⌂"),
+    RULES("规则", "≡"),
+    SETTINGS("设置", "⚙"),
+}
+
+@androidx.compose.runtime.Composable
+private fun MainBottomBar(
+    selectedSection: MainSection,
+    onSectionSelected: (MainSection) -> Unit,
+) {
+    NavigationBar {
+        MainSection.entries.forEach { section ->
+            NavigationBarItem(
+                selected = selectedSection == section,
+                onClick = { onSectionSelected(section) },
+                icon = {
+                    Text(section.symbol, style = MaterialTheme.typography.titleMedium)
+                },
+                label = { Text(section.label) },
+                alwaysShowLabel = true,
+            )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun MainPage(
+    modifier: Modifier = Modifier,
+    content: @androidx.compose.runtime.Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        content = content,
+    )
+}
+
+@androidx.compose.runtime.Composable
+private fun OperationMessage(message: String?) {
+    message?.let {
+        Text(it, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
 private data class PendingLinkInput(
     val sourceText: String,
     val sourcePackage: String,
@@ -630,31 +721,23 @@ private data class PendingLinkInput(
 )
 
 @androidx.compose.runtime.Composable
-private fun ManualEntryCard(
+private fun ClipboardEntryCard(
     enabled: Boolean,
     onReadClipboard: () -> Unit,
-    onRequestBrowserRole: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("无需无障碍权限", style = MaterialTheme.typography.titleMedium)
-            Text("从系统分享菜单发送文本到本应用，也可手动读取剪贴板或将本应用选为网页链接的打开方式。")
+            Text("处理剪贴板链接", style = MaterialTheme.typography.titleMedium)
+            Text("无需开启无障碍服务；也可以从系统分享菜单将文本发送到本应用。")
             Button(
                 onClick = onReadClipboard,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("解析剪贴板链接")
-            }
-            OutlinedButton(
-                onClick = onRequestBrowserRole,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("设为默认网页处理应用")
+                Text("读取并净化剪贴板链接")
             }
         }
     }
@@ -709,12 +792,10 @@ private fun UnsupportedLinkDialog(
 }
 
 @androidx.compose.runtime.Composable
-private fun ServiceCard(
+private fun AccessibilityServiceCard(
     enabled: Boolean,
     status: String,
-    resultPresentationMode: ResultPresentationMode,
     onOpenSettings: () -> Unit,
-    onResultPresentationModeChange: (ResultPresentationMode) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -726,7 +807,50 @@ private fun ServiceCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(status)
-            Button(onClick = onOpenSettings) { Text("打开无障碍设置") }
+            Text("开启后，可在支持的应用中自动识别分享操作并净化链接。")
+            Button(
+                onClick = onOpenSettings,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (enabled) "管理无障碍服务" else "前往开启无障碍服务")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun DefaultBrowserCard(
+    enabled: Boolean,
+    onRequestBrowserRole: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("网页链接打开方式", style = MaterialTheme.typography.titleMedium)
+            Text("将本应用设为默认网页处理应用后，可以直接净化从其他应用打开的链接。")
+            OutlinedButton(
+                onClick = onRequestBrowserRole,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("设为默认网页处理应用")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ResultPresentationCard(
+    resultPresentationMode: ResultPresentationMode,
+    onResultPresentationModeChange: (ResultPresentationMode) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text("自动化结果显示", style = MaterialTheme.typography.titleSmall)
             PresentationModeChoice(
                 selected = resultPresentationMode == ResultPresentationMode.APP_PAGE,
@@ -812,7 +936,7 @@ private fun UsageReportingConsentDialog(
                 )
                 Text("后端保存累计分享次数和必要时间；网络重试去重收据保留约 90 天并每日清理。")
                 Text("不会上传链接、标题、剪贴板内容、来源或目标应用、联系人、截图或无障碍界面数据。")
-                Text("拒绝不会影响链接净化、复制、打开或分享等任何功能，也可稍后在首页更改选择。")
+                Text("拒绝不会影响链接净化、复制、打开或分享等任何功能，也可稍后在设置中更改选择。")
                 OutlinedButton(onClick = onOpenPolicy) {
                     Text("查看完整隐私政策")
                 }
@@ -882,7 +1006,7 @@ private fun RuleCatalogSection(
     onSelectRule: (String, String) -> Unit,
     onCopyTriggerModeChange: (InstalledRule, CopyTriggerMode) -> Unit,
 ) {
-    Text("已安装规则", style = MaterialTheme.typography.titleLarge)
+    Text("支持的规则", style = MaterialTheme.typography.titleLarge)
     if (catalog.installedRules.isEmpty()) {
         Text("没有可用规则，自动化不会运行。")
         return
