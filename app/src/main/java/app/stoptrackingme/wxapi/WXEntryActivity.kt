@@ -20,13 +20,13 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         api = WXAPIFactory.createWXAPI(this, WeChatShare.APP_ID, false)
-        if (!api.handleIntent(intent, this)) finish()
+        if (!api.handleIntent(intent, this)) closeCallbackTask()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (!api.handleIntent(intent, this)) finish()
+        if (!api.handleIntent(intent, this)) closeCallbackTask()
     }
 
     override fun onReq(req: BaseReq) = Unit
@@ -48,6 +48,12 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
             else -> "微信分享失败（${resp.errCode}）"
         }
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-        finish()
+        closeCallbackTask()
+    }
+
+    private fun closeCallbackTask() {
+        // WeChat brings this singleTask activity into the app task. Removing only this activity
+        // exposes StopTracking underneath, so close every app activity below the callback too.
+        if (isTaskRoot) finishAndRemoveTask() else finishAffinity()
     }
 }
