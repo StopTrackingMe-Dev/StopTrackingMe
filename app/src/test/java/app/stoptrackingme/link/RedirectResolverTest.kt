@@ -1,6 +1,7 @@
 package app.stoptrackingme.link
 
 import app.stoptrackingme.network.PublicNetworkGuard
+import app.stoptrackingme.rules.AccessFailureRule
 import app.stoptrackingme.rules.RedirectPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -30,6 +31,82 @@ class RedirectResolverTest {
         result as RedirectOutcome.Success
         assertEquals("https://final.example/video", result.finalUrl)
         assertEquals(2, result.redirectCount)
+    }
+
+    @Test
+    fun stopsBeforeRequestingAnAllowedFinalPage() {
+        val requestedUris = ArrayList<String>()
+        val transport = RedirectTransport { uri, _ ->
+            requestedUris += uri.toASCIIString()
+            if (uri.host == "short.example") {
+                RedirectHttpResponse(302, "https://final.example/video")
+            } else {
+                error("最终页面不应在短链展开阶段被请求")
+            }
+        }
+
+        val result = HttpRedirectResolver(publicGuard, transport)
+            .resolve(
+                "https://short.example/a",
+                policy(maxRedirects = 5).copy(stopAtAllowedFinalHost = true),
+            )
+
+        result as RedirectOutcome.Success
+        assertEquals("https://final.example/video", result.finalUrl)
+        assertEquals(1, result.redirectCount)
+        assertEquals(listOf("https://short.example/a"), requestedUris)
+    }
+
+    @Test
+    fun recoversAllowedContentUrlFromAccessFailureRedirect() {
+        val errorUrl = "https://www.xiaohongshu.com/website-login/error" +
+            "?redirectPath=http%3A%2F%2Fwww.xiaohongshu.com%2Fdiscovery%2Fitem%2Fnote-id" +
+            "%3Ftype%3Dvideo%26xsec_token%3Drequired%253D&error_code=300011"
+        val transport = RedirectTransport { _, _ -> RedirectHttpResponse(302, errorUrl) }
+        val xiaohongshuPolicy = policy(maxRedirects = 5).copy(
+            shortLinkHosts = setOf("xhslink.cn"),
+            allowedFinalHosts = setOf("xiaohongshu.com"),
+            accessFailures = listOf(
+                AccessFailureRule(
+                    urlRegex = "^https://www\\.xiaohongshu\\.com/website-login/error([?#].*)?$",
+                    recoveryQueryParameter = "redirectPath",
+                ),
+            ),
+        )
+
+        val result = HttpRedirectResolver(publicGuard, transport)
+            .resolve("https://xhslink.cn/o/example", xiaohongshuPolicy)
+
+        result as RedirectOutcome.Success
+        assertEquals(
+            "https://www.xiaohongshu.com/discovery/item/note-id" +
+                "?type=video&xsec_token=required%3D",
+            result.finalUrl,
+        )
+        assertEquals(1, result.redirectCount)
+    }
+
+    @Test
+    fun rejectsAccessFailureRecoveryOutsideAllowedHosts() {
+        val errorUrl = "https://www.xiaohongshu.com/website-login/error" +
+            "?redirectPath=https%3A%2F%2Fattacker.example%2Fpayload&error_code=300011"
+        val transport = RedirectTransport { _, _ -> RedirectHttpResponse(302, errorUrl) }
+        val xiaohongshuPolicy = policy(maxRedirects = 5).copy(
+            shortLinkHosts = setOf("xhslink.cn"),
+            allowedFinalHosts = setOf("xiaohongshu.com"),
+            accessFailures = listOf(
+                AccessFailureRule(
+                    urlRegex = "^https://www\\.xiaohongshu\\.com/website-login/error([?#].*)?$",
+                    recoveryQueryParameter = "redirectPath",
+                ),
+            ),
+        )
+
+        val result = HttpRedirectResolver(publicGuard, transport)
+            .resolve("https://xhslink.cn/o/example", xiaohongshuPolicy)
+
+        assertTrue(result is RedirectOutcome.Failure)
+        assertTrue((result as RedirectOutcome.Failure).message.contains("无法恢复"))
     }
 
     @Test

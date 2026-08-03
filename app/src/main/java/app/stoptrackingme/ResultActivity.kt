@@ -47,7 +47,9 @@ import app.stoptrackingme.link.ShareTextBuilder
 import app.stoptrackingme.network.NetworkResolutionException
 import app.stoptrackingme.overlay.ShareOverlayCoordinator
 import app.stoptrackingme.overlay.ShareOverlayEvent
+import app.stoptrackingme.preview.PreviewAccessBlockedException
 import app.stoptrackingme.preview.PreviewHttpException
+import app.stoptrackingme.preview.PreviewMetadataUnavailableException
 import app.stoptrackingme.preview.PreviewResourceTooLargeException
 import app.stoptrackingme.preview.SharePreviewLoader
 import app.stoptrackingme.preview.WebSharePreview
@@ -200,7 +202,7 @@ class ResultActivity : ComponentActivity() {
                     sourceName = installed.rule.displayName,
                     rule = previewRule,
                     networkPolicy = installed.rule.redirectPolicy,
-                    fallbackText = fallback.description,
+                    fallbackPreview = fallback,
                 )
             }
             withContext(Dispatchers.Main) {
@@ -484,6 +486,12 @@ private fun ResultContent(
 
 internal fun previewFailureMessage(error: Throwable): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
+    if (causes.any { it is PreviewAccessBlockedException }) {
+        return "公开网页跳转到访问限制页面，无法生成预览；将使用默认分享卡片。"
+    }
+    if (causes.any { it is PreviewMetadataUnavailableException }) {
+        return "公开网页没有可用的标题、摘要或封面；将使用默认分享卡片。"
+    }
     val tooLarge = causes.filterIsInstance<PreviewResourceTooLargeException>().firstOrNull()
     if (tooLarge != null) {
         val limitMiB = tooLarge.maxBytes / (1024 * 1024)

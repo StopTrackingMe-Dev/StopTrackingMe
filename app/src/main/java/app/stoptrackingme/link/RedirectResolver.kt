@@ -91,6 +91,19 @@ class HttpRedirectResolver(
             if (current.userInfo != null || current.host.isNullOrBlank()) {
                 return RedirectOutcome.Failure("重定向目标格式无效", false)
             }
+            if (AccessFailureUrl.matches(current, policy)) {
+                val recovered = AccessFailureUrl.recoverTarget(current, policy)
+                    ?: return RedirectOutcome.Failure("短链跳转到访问限制页面，且无法恢复原始地址", false)
+                return RedirectOutcome.Success(recovered.toASCIIString(), redirectCount)
+            }
+            if (policy.stopAtAllowedFinalHost &&
+                HostPolicy.isAllowed(current.host, policy.allowedFinalHosts) &&
+                !HostPolicy.isAllowed(current.host, policy.shortLinkHosts)
+            ) {
+                // The redirect location is all the cleaner needs. Avoid probing the destination
+                // page here because preview loading will fetch it once with site-appropriate headers.
+                return RedirectOutcome.Success(current.toASCIIString(), redirectCount)
+            }
             val canonical = current.normalize().toASCIIString()
             if (!visited.add(canonical)) {
                 return RedirectOutcome.Failure("短链出现重定向循环", false)

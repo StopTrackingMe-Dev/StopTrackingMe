@@ -45,7 +45,7 @@ class LinkProcessor(
         onStage(LinkProcessingStage.RESOLVE)
         val policy = rule.redirectPolicy
         val isShortLink = HostPolicy.isAllowed(originalUri.host, policy.shortLinkHosts)
-        val expandedUrl = if (isShortLink) {
+        val resolvedUrl = if (isShortLink) {
             when (val outcome = redirectResolver.resolve(extracted.value, policy)) {
                 is RedirectOutcome.Success -> outcome.finalUrl
                 is RedirectOutcome.Failure -> {
@@ -71,16 +71,32 @@ class LinkProcessor(
             extracted.value
         }
 
-        val expandedUri = parseWebUri(expandedUrl)
+        var expandedUri = parseWebUri(resolvedUrl)
             ?: return failure(
                 sourceText,
                 ProcessingFailure.INVALID_URL,
                 "展开后的 URL 格式无效",
                 originalUrl = extracted.value,
-                expandedUrl = expandedUrl,
+                expandedUrl = resolvedUrl,
                 urlCount = extracted.totalMatches,
                 warnings = warnings,
             )
+        val expandedUrl = if (AccessFailureUrl.matches(expandedUri, policy)) {
+            expandedUri = AccessFailureUrl.recoverTarget(expandedUri, policy)
+                ?: return failure(
+                    sourceText,
+                    ProcessingFailure.REDIRECT_FAILED,
+                    "链接跳转到访问限制页面，且无法恢复原始地址",
+                    originalUrl = extracted.value,
+                    expandedUrl = resolvedUrl,
+                    urlCount = extracted.totalMatches,
+                    warnings = warnings,
+                )
+            warnings += "检测到访问限制页面；已恢复原始内容地址。"
+            expandedUri.toASCIIString()
+        } else {
+            resolvedUrl
+        }
         if (!HostPolicy.isAllowed(expandedUri.host, policy.allowedFinalHosts)) {
             return failure(
                 sourceText,

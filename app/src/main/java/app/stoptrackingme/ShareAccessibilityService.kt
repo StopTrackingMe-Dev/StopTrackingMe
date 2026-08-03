@@ -898,7 +898,7 @@ class ShareAccessibilityService : AccessibilityService() {
                     sourceName = installed.rule.displayName,
                     rule = previewRule,
                     networkPolicy = installed.rule.redirectPolicy,
-                    fallbackText = fallback.description,
+                    fallbackPreview = fallback,
                 )
             }
             handler.post {

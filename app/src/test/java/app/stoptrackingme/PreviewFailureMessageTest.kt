@@ -1,11 +1,14 @@
 package app.stoptrackingme
 
 import app.stoptrackingme.network.NetworkResolutionException
+import app.stoptrackingme.preview.PreviewAccessBlockedException
 import app.stoptrackingme.preview.PreviewHttpException
+import app.stoptrackingme.preview.PreviewMetadataUnavailableException
 import app.stoptrackingme.preview.PreviewResourceTooLargeException
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.net.SocketTimeoutException
+import java.net.URI
 
 class PreviewFailureMessageTest {
     @Test
@@ -21,6 +24,20 @@ class PreviewFailureMessageTest {
         assertEquals(
             "公开网页返回 HTTP 412，无法生成预览；将使用默认分享卡片。",
             previewFailureMessage(PreviewHttpException(412)),
+        )
+    }
+
+    @Test
+    fun reportsAccessFailureAndMissingMetadata() {
+        assertEquals(
+            "公开网页跳转到访问限制页面，无法生成预览；将使用默认分享卡片。",
+            previewFailureMessage(
+                PreviewAccessBlockedException(URI("https://example.com/error")),
+            ),
+        )
+        assertEquals(
+            "公开网页没有可用的标题、摘要或封面；将使用默认分享卡片。",
+            previewFailureMessage(PreviewMetadataUnavailableException()),
         )
     }
 

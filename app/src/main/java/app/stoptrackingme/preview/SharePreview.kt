@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import app.stoptrackingme.link.AccessFailureUrl
 import app.stoptrackingme.link.HostPolicy
 import app.stoptrackingme.network.PublicNetworkGuard
 import app.stoptrackingme.rules.PreviewFieldSelector
@@ -43,15 +44,22 @@ fun copiedTextPreview(
     urlRegex: String,
     defaultHost: String,
 ): WebSharePreview {
+    val urlPattern = Regex(urlRegex)
     val copiedText = sourceText
-        ?.replace(Regex(urlRegex), " ")
-        ?.replace(Regex("""\s+"""), " ")
-        ?.trim(' ', '-', '—', '|', '：', ':')
-        ?.takeIf { it.isNotBlank() }
-    val titleText = copiedText?.take(180) ?: "网页内容"
+        ?.replace(urlPattern, " ")
+        ?.normalizeCopiedText()
+    val leadingText = sourceText
+        ?.let { text -> urlPattern.find(text)?.let { text.substring(0, it.range.first) } }
+        ?.normalizeCopiedText()
+    val titleText = (leadingText ?: copiedText)?.take(180) ?: "网页内容"
     val description = copiedText?.take(300) ?: "来自 $defaultHost 的净化链接"
     return WebSharePreview("【$sourceName】$titleText", description, null)
 }
+
+private fun String.normalizeCopiedText(): String? =
+    replace(Regex("""\s+"""), " ")
+        .trim(' ', '-', '—', '|', '：', ':')
+        .takeIf { it.isNotBlank() }
 
 internal data class PageMetadata(
     val title: String?,
@@ -90,6 +98,13 @@ internal class PreviewResourceTooLargeException(
 internal class PreviewHttpException(
     val statusCode: Int,
 ) : IOException("预览资源返回 HTTP $statusCode")
+
+internal class PreviewAccessBlockedException(
+    val finalUri: URI,
+) : IOException("公开网页跳转到访问限制页面")
+
+internal class PreviewMetadataUnavailableException :
+    IOException("公开网页没有可用的预览元数据")
 
 internal class SafePreviewResourceClient(
     private val networkGuard: PublicNetworkGuard = PublicNetworkGuard(),
@@ -196,7 +211,13 @@ internal object PageMetadataParser {
         return PageMetadata(
             title = firstValue(document, rule.titleSelectors, scriptJsonRoots),
             description = firstValue(document, rule.descriptionSelectors, scriptJsonRoots),
-            imageUrl = firstValue(document, rule.imageSelectors, scriptJsonRoots),
+            imageUrl = firstImageValue(
+                document,
+                baseUri,
+                rule.imageSelectors,
+                scriptJsonRoots,
+                rule.imageAllowedHosts,
+            ),
         )
     }
 
@@ -222,24 +243,58 @@ internal object PageMetadataParser {
         scriptJsonRoots: Map<String, JsonElement>,
     ): String? {
         selectors.forEach { selector ->
-            val value = when (selector.type) {
-                PreviewSelectorType.HTML_TITLE -> document.title()
-                PreviewSelectorType.META_PROPERTY -> document.getElementsByTag("meta")
-                    .firstOrNull { it.attr("property").equals(selector.key, ignoreCase = true) }
-                    ?.attr("content")
-                PreviewSelectorType.META_NAME -> document.getElementsByTag("meta")
-                    .firstOrNull { it.attr("name").equals(selector.key, ignoreCase = true) }
-                    ?.attr("content")
-                PreviewSelectorType.JSON_PATH -> null
-                PreviewSelectorType.SCRIPT_JSON_PATH -> {
-                    val segments = selector.key.orEmpty().split('.')
-                    scriptJsonRoots[segments.first()]
-                        ?.let { jsonStringAtPath(it, segments.drop(1)) }
-                }
+            selectorValues(document, selector, scriptJsonRoots).forEach { value ->
+                normalize(value)?.let { return it }
             }
-            normalize(value)?.let { return it }
         }
         return null
+    }
+
+    private fun firstImageValue(
+        document: Document,
+        baseUri: URI,
+        selectors: List<PreviewFieldSelector>,
+        scriptJsonRoots: Map<String, JsonElement>,
+        preferredHosts: Set<String>,
+    ): String? {
+        var fallback: String? = null
+        for (selector in selectors) {
+            for (value in selectorValues(document, selector, scriptJsonRoots)) {
+                val normalized = normalize(value) ?: continue
+                if (fallback == null) fallback = normalized
+                val candidate = try {
+                    baseUri.resolve(normalized)
+                } catch (_: Exception) {
+                    null
+                }
+                if (candidate != null && HostPolicy.isAllowed(candidate.host, preferredHosts)) {
+                    return normalized
+                }
+            }
+        }
+        return fallback
+    }
+
+    private fun selectorValues(
+        document: Document,
+        selector: PreviewFieldSelector,
+        scriptJsonRoots: Map<String, JsonElement>,
+    ): List<String?> = when (selector.type) {
+        PreviewSelectorType.HTML_TITLE -> listOf(document.title())
+        PreviewSelectorType.META_PROPERTY -> document.getElementsByTag("meta")
+            .filter { it.attr("property").equals(selector.key, ignoreCase = true) }
+            .map { it.attr("content") }
+        PreviewSelectorType.META_NAME -> document.getElementsByTag("meta")
+            .filter { it.attr("name").equals(selector.key, ignoreCase = true) }
+            .map { it.attr("content") }
+        PreviewSelectorType.JSON_PATH -> emptyList()
+        PreviewSelectorType.SCRIPT_JSON_PATH -> {
+            val segments = selector.key.orEmpty().split('.')
+            listOf(
+                scriptJsonRoots[segments.first()]
+                    ?.let { jsonStringAtPath(it, segments.drop(1)) },
+            )
+        }
     }
 
     private fun parseScriptJsonRoots(
@@ -373,7 +428,7 @@ class SharePreviewLoader internal constructor(
         sourceName: String,
         rule: SharePreviewRule,
         networkPolicy: RedirectPolicy,
-        fallbackText: String? = null,
+        fallbackPreview: WebSharePreview? = null,
     ): WebSharePreview {
         client.resetSession()
         val configuredRequest = rule.request?.takeIf {
@@ -410,6 +465,9 @@ class SharePreviewLoader internal constructor(
                 headers = configuredRequest?.headers ?: rule.pageRequestHeaders,
             ),
         )
+        if (AccessFailureUrl.matches(page.finalUri, networkPolicy)) {
+            throw PreviewAccessBlockedException(page.finalUri)
+        }
         val responseType = configuredRequest?.responseType ?: PreviewResponseType.HTML
         if (responseType == PreviewResponseType.HTML &&
             page.contentType != null && page.contentType !in HTML_CONTENT_TYPES
@@ -417,15 +475,25 @@ class SharePreviewLoader internal constructor(
             error("目标页面不是 HTML")
         }
         val metadata = PageMetadataParser.parse(page.bytes, page.finalUri, rule, responseType)
-        val title = metadata.title?.take(MAX_TITLE_CHARS)
-            ?: fallbackText?.take(MAX_TITLE_CHARS)
-            ?: "网页内容"
+        val metadataTitle = metadata.title?.takeUnless { isGenericTitle(it, sourceName) }
+        val hasAllowedImage = metadata.imageUrl?.let { imageUrl ->
+            isAllowedImageUrl(imageUrl, page.finalUri, rule, networkPolicy)
+        } == true
+        if (metadataTitle == null && metadata.description == null && !hasAllowedImage) {
+            throw PreviewMetadataUnavailableException()
+        }
+        val title = metadataTitle?.take(MAX_TITLE_CHARS)
         val description = metadata.description?.take(MAX_DESCRIPTION_CHARS)
-            ?: fallbackText?.take(MAX_DESCRIPTION_CHARS)
+            ?: fallbackPreview?.description?.take(MAX_DESCRIPTION_CHARS)
             ?: "来自 ${page.finalUri.host} 的净化链接"
         val thumbnail = loadThumbnail(metadata.imageUrl, page.finalUri, rule, networkPolicy)
+        if (metadataTitle == null && metadata.description == null && thumbnail == null) {
+            throw PreviewMetadataUnavailableException()
+        }
         return WebSharePreview(
-            title = "【$sourceName】$title",
+            title = title?.let { "【$sourceName】$it" }
+                ?: fallbackPreview?.title
+                ?: "【$sourceName】网页内容",
             description = description,
             thumbnail = thumbnail,
         )
@@ -507,7 +575,12 @@ class SharePreviewLoader internal constructor(
                     readTimeoutMs = networkPolicy.readTimeoutMs,
                     maxBytes = MAX_IMAGE_BYTES,
                     accept = "image/avif,image/webp,image/png,image/jpeg;q=0.9",
-                    headers = rule.imageRequestHeaders.ifEmpty { rule.pageRequestHeaders },
+                    headers = rule.imageRequestHeaders.ifEmpty {
+                        rule.pageRequestHeaders.filterKeys { name ->
+                            !name.equals("Accept", ignoreCase = true) &&
+                                !name.equals("Content-Type", ignoreCase = true)
+                        }
+                    },
                 ),
             )
             if (image.contentType?.startsWith("image/") != true ||
@@ -521,6 +594,29 @@ class SharePreviewLoader internal constructor(
             null
         }
     }
+
+    private fun isAllowedImageUrl(
+        imageUrl: String,
+        pageUri: URI,
+        rule: SharePreviewRule,
+        networkPolicy: RedirectPolicy,
+    ): Boolean {
+        val imageUri = try {
+            pageUri.resolve(imageUrl)
+        } catch (_: Exception) {
+            return false
+        }
+        val scheme = imageUri.scheme?.lowercase(Locale.ROOT)
+        if (scheme != "http" && scheme != "https") return false
+        return HostPolicy.isAllowed(
+            imageUri.host,
+            networkPolicy.allowedFinalHosts + rule.imageAllowedHosts,
+        )
+    }
+
+    private fun isGenericTitle(title: String, sourceName: String): Boolean =
+        title.trim(' ', '-', '—', '|', '｜', '：', ':')
+            .equals(sourceName.trim(), ignoreCase = true)
 
     companion object {
         // Modern media pages often embed hydration data in the initial HTML. Keep a bounded

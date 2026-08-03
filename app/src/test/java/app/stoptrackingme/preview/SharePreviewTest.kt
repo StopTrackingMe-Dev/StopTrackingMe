@@ -6,6 +6,7 @@ import app.stoptrackingme.rules.PreviewSelectorType
 import app.stoptrackingme.rules.SharePreviewRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.URI
@@ -72,6 +73,104 @@ class SharePreviewTest {
     }
 
     @Test
+    fun xiaohongshuRulePrefersAllowedCoverOverGenericOgImage() {
+        val siteRule = TestFixtures.builtInRule("xiaohongshu").sharePreview!!
+        val html = """
+            <html><head>
+              <meta property="og:title" content="对不起老婆。 - 小红书">
+              <meta property="og:image" content="https://picasso-static.xiaohongshu.com/generic.png">
+              <meta property="og:image" content="http://sns-webpic-qc.xhscdn.com/cover.webp">
+            </head></html>
+        """.trimIndent().toByteArray()
+
+        val metadata = PageMetadataParser.parse(
+            html,
+            URI("https://www.xiaohongshu.com/discovery/item/note-id"),
+            siteRule,
+        )
+
+        assertEquals("http://sns-webpic-qc.xhscdn.com/cover.webp", metadata.imageUrl)
+    }
+
+    @Test
+    fun loaderRejectsHttp200AccessFailurePage() {
+        val siteRule = TestFixtures.builtInRule("xiaohongshu")
+        val errorUris = listOf(
+            URI(
+                "https://www.xiaohongshu.com/website-login/error" +
+                    "?redirectPath=https%3A%2F%2Fwww.xiaohongshu.com%2Fdiscovery%2Fitem%2Fnote-id" +
+                    "&error_code=300011",
+            ),
+            URI(
+                "https://www.xiaohongshu.com/404/sec_example" +
+                    "?originalUrl=https%3A%2F%2Fwww.xiaohongshu.com%2Fdiscovery%2Fitem%2Fnote-id",
+            ),
+        )
+
+        errorUris.forEach { errorUri ->
+            val client = PreviewResourceClient {
+                PreviewResource(errorUri, "text/html", "<title>小红书</title>".toByteArray())
+            }
+            assertThrows(PreviewAccessBlockedException::class.java) {
+                SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+                    "https://www.xiaohongshu.com/discovery/item/note-id",
+                    "小红书",
+                    siteRule.sharePreview!!,
+                    siteRule.redirectPolicy,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun loaderRejectsGenericShellWithoutPreviewMetadata() {
+        val siteRule = TestFixtures.builtInRule("xiaohongshu")
+        val pageUri = URI("https://www.xiaohongshu.com/discovery/item/note-id")
+        val client = PreviewResourceClient {
+            PreviewResource(pageUri, "text/html", "<title>小红书</title>".toByteArray())
+        }
+
+        assertThrows(PreviewMetadataUnavailableException::class.java) {
+            SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+                pageUri.toASCIIString(),
+                "小红书",
+                siteRule.sharePreview!!,
+                siteRule.redirectPolicy,
+            )
+        }
+    }
+
+    @Test
+    fun loaderUsesCopiedCaptionWhenPageTitleIsOnlySourceName() {
+        val siteRule = TestFixtures.builtInRule("xiaohongshu")
+        val pageUri = URI("https://www.xiaohongshu.com/discovery/item/note-id")
+        val client = PreviewResourceClient {
+            PreviewResource(
+                pageUri,
+                "text/html",
+                "<title>小红书</title><meta name=\"description\" content=\"网页简介\">".toByteArray(),
+            )
+        }
+        val fallback = copiedTextPreview(
+            "小红书",
+            "对不起老婆。 http://xhslink.cn/o/example 存好这段，去【小红书】逛逛笔记~",
+            "https?://[^\\s]+",
+            "xiaohongshu.com",
+        )
+
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            pageUri.toASCIIString(),
+            "小红书",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+            fallbackPreview = fallback,
+        )
+
+        assertEquals("【小红书】对不起老婆。", preview.title)
+        assertEquals("网页简介", preview.description)
+    }
+
+    @Test
     fun loaderBuildsSourcePrefixedCardAndOnlyFetchesAllowedImage() {
         val requests = mutableListOf<PreviewFetchRequest>()
         val client = PreviewResourceClient { request ->
@@ -98,7 +197,12 @@ class SharePreviewTest {
         val preview = loader.load(
             cleanedUrl = "https://www.example.com/video/1",
             sourceName = "哔哩哔哩",
-            rule = rule,
+            rule = rule.copy(
+                pageRequestHeaders = mapOf(
+                    "User-Agent" to "PreviewTest/1",
+                    "Accept" to "text/html",
+                ),
+            ),
             networkPolicy = networkPolicy,
         )
 
@@ -107,6 +211,9 @@ class SharePreviewTest {
         assertTrue(preview.thumbnail!!.contentEquals(byteArrayOf(9, 8, 7)))
         assertEquals(2 * 1024 * 1024, requests[0].maxBytes)
         assertEquals(setOf("example.com", "cdn.example.com"), requests[1].allowedHosts)
+        assertEquals("PreviewTest/1", requests[1].headers["User-Agent"])
+        assertTrue(requests[1].headers.keys.none { it.equals("Accept", ignoreCase = true) })
+        assertTrue(requests[1].accept.startsWith("image/"))
     }
 
     @Test
@@ -225,6 +332,20 @@ class SharePreviewTest {
 
         assertEquals("【微博】这是应用自带文案", preview.title)
         assertEquals("这是应用自带文案", preview.description)
+        assertNull(preview.thumbnail)
+    }
+
+    @Test
+    fun copiedTextFallbackUsesCaptionBeforeUrlAsTitle() {
+        val preview = copiedTextPreview(
+            "小红书",
+            "对不起老婆。 http://xhslink.cn/o/6ExtmRdnLuU 存好这段，去【小红书】逛逛笔记~",
+            "https?://[^\\s]+",
+            "xiaohongshu.com",
+        )
+
+        assertEquals("【小红书】对不起老婆。", preview.title)
+        assertEquals("对不起老婆。 存好这段，去【小红书】逛逛笔记~", preview.description)
         assertNull(preview.thumbnail)
     }
 }

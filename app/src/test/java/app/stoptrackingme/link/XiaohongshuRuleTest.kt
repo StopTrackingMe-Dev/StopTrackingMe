@@ -19,15 +19,22 @@ class XiaohongshuRuleTest {
                     SafeRegexProbe.matches(it.descriptionRegex, "复制链接")
             },
         )
-        assertEquals(6, rule.version)
+        assertEquals(7, rule.version)
         assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertTrue("xhslink.cn" in rule.redirectPolicy.shortLinkHosts)
         assertTrue("xhslink.com" in rule.redirectPolicy.shortLinkHosts)
         assertTrue(rule.redirectPolicy.requireHttps)
+        assertTrue(rule.redirectPolicy.stopAtAllowedFinalHost)
+        assertTrue("xsec_source" in rule.cleaningPolicy.forceKeep)
+        assertEquals(
+            listOf("redirectPath", "originalUrl"),
+            rule.redirectPolicy.accessFailures.map { it.recoveryQueryParameter },
+        )
+        assertEquals("https://www.xiaohongshu.com/", rule.sharePreview?.imageRequestHeaders?.get("Referer"))
     }
 
     @Test
-    fun expandedNoteLinkDropsShareAttributionButKeepsAccessToken() {
+    fun expandedNoteLinkDropsShareAttributionButKeepsAccessContext() {
         val resolver = RedirectResolver { _, _ ->
             RedirectOutcome.Success(
                 "https://www.xiaohongshu.com/discovery/item/note-id" +
@@ -58,7 +65,7 @@ class XiaohongshuRuleTest {
         assertTrue(result.isSuccess)
         assertEquals(
             "https://www.xiaohongshu.com/discovery/item/note-id" +
-                "?type=normal&xsec_token=required-token",
+                "?xsec_source=app_share&type=normal&xsec_token=required-token",
             result.cleanedUrl,
         )
         assertEquals(
@@ -67,7 +74,6 @@ class XiaohongshuRuleTest {
                 "ignoreEngage",
                 "app_version",
                 "share_from_user_hidden",
-                "xsec_source",
                 "author_share",
                 "shareRedId",
                 "apptime",
@@ -78,6 +84,46 @@ class XiaohongshuRuleTest {
                 "xhsshare",
             ),
             result.removedParameters,
+        )
+    }
+
+    @Test
+    fun accessFailureWrapperRecoversAndCleansOriginalNoteUrl() {
+        val errorUrl = "https://www.xiaohongshu.com/website-login/error" +
+            "?redirectPath=http%3A%2F%2Fwww.xiaohongshu.com%2Fdiscovery%2Fitem%2Fnote-id" +
+            "%3Fapp_platform%3Dandroid%26xsec_source%3Dapp_share" +
+            "%26type%3Dvideo%26xsec_token%3Drequired%253D" +
+            "%26author_share%3D1%26share_id%3Dshare-marker%26xhsshare%3DCopyLink" +
+            "&error_code=300011"
+
+        val result = LinkProcessor().process(
+            "对不起老婆。 $errorUrl 存好这段，去【小红书】逛逛笔记~",
+            rule,
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(
+            "https://www.xiaohongshu.com/discovery/item/note-id" +
+                "?xsec_source=app_share&type=video&xsec_token=required%3D",
+            result.cleanedUrl,
+        )
+        assertTrue(result.warnings.any { it.contains("恢复原始内容地址") })
+    }
+
+    @Test
+    fun securityWrapperRecoversOriginalNoteUrl() {
+        val securityUrl = "https://www.xiaohongshu.com/404/sec_example" +
+            "?source=xhs_sec_server&originalUrl=http%3A%2F%2Fwww.xiaohongshu.com" +
+            "%2Fdiscovery%2Fitem%2Fnote-id%3Fxsec_source%3Dapp_share" +
+            "%26type%3Dvideo%26xsec_token%3Drequired%253D"
+
+        val result = LinkProcessor().process(securityUrl, rule)
+
+        assertTrue(result.isSuccess)
+        assertEquals(
+            "https://www.xiaohongshu.com/discovery/item/note-id" +
+                "?xsec_source=app_share&type=video&xsec_token=required%3D",
+            result.cleanedUrl,
         )
     }
 

@@ -39,6 +39,11 @@ data class ClipboardExtractionRule(
     val maxInputLength: Int,
 )
 
+data class AccessFailureRule(
+    val urlRegex: String,
+    val recoveryQueryParameter: String?,
+)
+
 enum class CopyTriggerMode {
     AUTOMATIC,
     USER_CONFIRMATION,
@@ -51,6 +56,8 @@ data class RedirectPolicy(
     val requireHttps: Boolean,
     val connectTimeoutMs: Int,
     val readTimeoutMs: Int,
+    val stopAtAllowedFinalHost: Boolean = false,
+    val accessFailures: List<AccessFailureRule> = emptyList(),
 )
 
 data class CleaningPolicy(

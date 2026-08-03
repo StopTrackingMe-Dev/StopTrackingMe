@@ -1,6 +1,8 @@
 package app.stoptrackingme.rules
 
 import app.stoptrackingme.TestFixtures
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -75,6 +77,23 @@ class RuleParserTest {
             root.getAsJsonArray("rules")[0].asJsonObject
                 .getAsJsonObject("redirectPolicy")
                 .addProperty("maxRedirects", 6)
+        }
+
+        assertThrows(RuleValidationException::class.java) {
+            parser.parse(bytes)
+        }
+    }
+
+    @Test
+    fun rejectsMalformedAccessFailureRecoveryParameter() {
+        val bytes = mutate { root ->
+            val accessFailure = JsonObject().apply {
+                addProperty("urlRegex", "^https://example\\.com/error")
+                addProperty("recoveryQueryParameter", "redirectPath&next")
+            }
+            root.getAsJsonArray("rules")[0].asJsonObject
+                .getAsJsonObject("redirectPolicy")
+                .add("accessFailures", JsonArray().apply { add(accessFailure) })
         }
 
         assertThrows(RuleValidationException::class.java) {

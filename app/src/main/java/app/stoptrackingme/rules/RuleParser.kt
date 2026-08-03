@@ -191,6 +191,8 @@ class RuleParser {
             "requireHttps",
             "connectTimeoutMs",
             "readTimeoutMs",
+            "stopAtAllowedFinalHost",
+            "accessFailures",
         )
         val shortHosts = json.requiredStringSet("shortLinkHosts", MAX_HOSTS).mapTo(linkedSetOf(), ::normalizeHost)
         val finalHosts = json.requiredStringSet("allowedFinalHosts", MAX_HOSTS).mapTo(linkedSetOf(), ::normalizeHost)
@@ -211,6 +213,30 @@ class RuleParser {
             requireHttps = json.requiredBoolean("requireHttps"),
             connectTimeoutMs = connectTimeout,
             readTimeoutMs = readTimeout,
+            stopAtAllowedFinalHost = json.optionalBoolean("stopAtAllowedFinalHost") ?: false,
+            accessFailures = json.get("accessFailures")?.let(::parseAccessFailures).orEmpty(),
+        )
+    }
+
+    private fun parseAccessFailures(element: JsonElement): List<AccessFailureRule> {
+        if (!element.isJsonArray || element.asJsonArray.size() !in 1..MAX_ACCESS_FAILURE_RULES) {
+            throw RuleValidationException("访问失败规则数量无效")
+        }
+        return element.asJsonArray.mapIndexed { index, item ->
+            parseAccessFailure(item.requiredObject("accessFailures[$index]"))
+        }
+    }
+
+    private fun parseAccessFailure(json: JsonObject): AccessFailureRule {
+        json.requireOnly("urlRegex", "recoveryQueryParameter")
+        val recoveryParameter = json.optionalString("recoveryQueryParameter")?.also { value ->
+            if (value.isEmpty() || value.length > MAX_PARAMETER_LENGTH || !PARAMETER_PATTERN.matches(value)) {
+                throw RuleValidationException("访问失败恢复参数名无效")
+            }
+        }
+        return AccessFailureRule(
+            urlRegex = json.requiredRegex("urlRegex"),
+            recoveryQueryParameter = recoveryParameter,
         )
     }
 
@@ -539,6 +565,7 @@ class RuleParser {
         private const val MAX_HOSTS = 32
         private const val MAX_PARAMETERS = 128
         private const val MAX_PREVIEW_SELECTORS = 8
+        private const val MAX_ACCESS_FAILURE_RULES = 8
         private const val MAX_PREVIEW_KEY_LENGTH = 80
         private const val MAX_HEADERS = 16
         private const val MAX_FORM_PARAMETERS = 24

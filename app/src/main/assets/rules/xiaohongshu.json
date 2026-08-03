@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.xiaohongshu.share-clean",
-      "version": 6,
+      "version": 7,
       "displayName": "小红书",
       "source": {
         "kind": "BUILTIN",
@@ -60,7 +60,18 @@
         "maxRedirects": 5,
         "requireHttps": true,
         "connectTimeoutMs": 5000,
-        "readTimeoutMs": 5000
+        "readTimeoutMs": 5000,
+        "stopAtAllowedFinalHost": true,
+        "accessFailures": [
+          {
+            "urlRegex": "^https://([a-z0-9-]+\\.)*xiaohongshu\\.com/website-login/error([?#].*)?$",
+            "recoveryQueryParameter": "redirectPath"
+          },
+          {
+            "urlRegex": "^https://([a-z0-9-]+\\.)*xiaohongshu\\.com/404/sec_[^/?#]+([?#].*)?$",
+            "recoveryQueryParameter": "originalUrl"
+          }
+        ]
       },
       "sharePreview": {
         "titleSelectors": [
@@ -83,6 +94,10 @@
         "pageRequestHeaders": {
           "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
           "Accept": "text/html,application/xhtml+xml;q=0.9"
+        },
+        "imageRequestHeaders": {
+          "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36",
+          "Referer": "https://www.xiaohongshu.com/"
         }
       },
       "cleaningPolicy": {
@@ -91,7 +106,6 @@
           "ignoreEngage",
           "app_version",
           "share_from_user_hidden",
-          "xsec_source",
           "author_share",
           "xhsshare",
           "shareRedId",
@@ -113,6 +127,7 @@
           "utm_"
         ],
         "forceKeep": [
+          "xsec_source",
           "xsec_token",
           "xsec_token_original",
           "token",
