@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.zhihu.share-clean",
-      "version": 3,
+      "version": 4,
       "displayName": "知乎",
       "source": {
         "kind": "BUILTIN",
@@ -55,6 +55,7 @@
       },
       "sharePreview": {
         "titleSelectors": [
+          { "type": "JSON_PATH", "key": "question.title" },
           { "type": "SCRIPT_JSON_PATH", "key": "js-initialData.initialState.entities.answers.*.question.title" },
           { "type": "SCRIPT_JSON_PATH", "key": "js-initialData.initialState.entities.questions.*.title" },
           { "type": "META_PROPERTY", "key": "og:title" },
@@ -62,15 +63,43 @@
           { "type": "HTML_TITLE" }
         ],
         "descriptionSelectors": [
+          { "type": "JSON_PATH", "key": "excerpt" },
           { "type": "SCRIPT_JSON_PATH", "key": "js-initialData.initialState.entities.answers.*.excerpt" },
           { "type": "META_PROPERTY", "key": "og:description" },
           { "type": "META_NAME", "key": "description" }
         ],
         "imageSelectors": [
+          { "type": "JSON_PATH", "key": "author.avatar_url" },
           { "type": "META_PROPERTY", "key": "og:image" },
           { "type": "META_NAME", "key": "twitter:image" }
         ],
         "imageAllowedHosts": ["zhimg.com"],
+        "request": {
+          "urlRegex": "^https://www\\.zhihu\\.com/question/[0-9]+/answer/([0-9]+).*$",
+          "urlReplacement": "https://web-render.zhihu.com/web_content_detail?content_id=$1&content_type=answer",
+          "method": "GET",
+          "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.zhihu.com/"
+          },
+          "formParameters": {},
+          "responseType": "JSON"
+        },
+        "fallbackRequests": [
+          {
+            "urlRegex": "^(https://www\\.zhihu\\.com/question/[0-9]+/answer/[0-9]+).*$",
+            "urlReplacement": "$1",
+            "method": "GET",
+            "headers": {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml;q=0.9",
+              "Accept-Language": "zh-CN,zh;q=0.9"
+            },
+            "formParameters": {},
+            "responseType": "HTML"
+          }
+        ],
         "pageRequestHeaders": {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml;q=0.9",

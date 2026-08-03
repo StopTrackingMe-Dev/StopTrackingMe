@@ -2,6 +2,7 @@ package app.stoptrackingme.preview
 
 import app.stoptrackingme.TestFixtures
 import app.stoptrackingme.rules.PreviewFieldSelector
+import app.stoptrackingme.rules.PreviewHttpMethod
 import app.stoptrackingme.rules.PreviewSelectorType
 import app.stoptrackingme.rules.SharePreviewRule
 import org.junit.Assert.assertEquals
@@ -87,7 +88,9 @@ class SharePreviewTest {
               </script>
             </body></html>
         """.trimIndent().toByteArray()
+        val requests = mutableListOf<PreviewFetchRequest>()
         val client = PreviewResourceClient {
+            requests += it
             PreviewResource(pageUri, "text/html", html)
         }
 
@@ -100,6 +103,50 @@ class SharePreviewTest {
 
         assertEquals("【知乎】当年你们班第一名和最后一名的人都在干吗？", preview.title)
         assertEquals("高中第一名在写回答，大学最后一名也在写回答。", preview.description)
+        assertEquals(2, requests.size)
+        assertEquals("web-render.zhihu.com", requests[0].uri.host)
+        assertEquals(pageUri, requests[1].uri)
+    }
+
+    @Test
+    fun zhihuRuleUsesOfficialWebRenderJsonBeforeChallengePage() {
+        val siteRule = TestFixtures.builtInRule("zhihu")
+        val pageUri = URI("https://www.zhihu.com/question/2061099332632416849/answer/2061657782550532205")
+        val requests = mutableListOf<PreviewFetchRequest>()
+        val client = PreviewResourceClient { request ->
+            requests += request
+            PreviewResource(
+                request.uri,
+                "application/json",
+                """
+                    {
+                      "question": {"title": "Linus 称 Linux 不搞「反 AI」，这会带来哪些影响？"},
+                      "excerpt": "主要还是 C 人青黄不接，没办法。"
+                    }
+                """.trimIndent().toByteArray(),
+            )
+        }
+
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            pageUri.toASCIIString(),
+            "知乎",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+        )
+
+        assertEquals("【知乎】Linus 称 Linux 不搞「反 AI」，这会带来哪些影响？", preview.title)
+        assertEquals("主要还是 C 人青黄不接，没办法。", preview.description)
+        assertEquals(1, requests.size)
+        assertEquals(
+            URI(
+                "https://web-render.zhihu.com/web_content_detail" +
+                    "?content_id=2061657782550532205&content_type=answer",
+            ),
+            requests[0].uri,
+        )
+        assertEquals(PreviewHttpMethod.GET, requests[0].method)
+        assertEquals("application/json, text/plain, */*", requests[0].headers["Accept"])
+        assertEquals("https://www.zhihu.com/", requests[0].headers["Referer"])
     }
 
     @Test

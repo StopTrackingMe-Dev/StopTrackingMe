@@ -11,6 +11,7 @@ import app.stoptrackingme.link.HostPolicy
 import app.stoptrackingme.network.PublicNetworkGuard
 import app.stoptrackingme.rules.PreviewFieldSelector
 import app.stoptrackingme.rules.PreviewHttpMethod
+import app.stoptrackingme.rules.PreviewRequestRule
 import app.stoptrackingme.rules.PreviewResponseType
 import app.stoptrackingme.rules.PreviewSelectorType
 import app.stoptrackingme.rules.PreviewSignatureAlgorithm
@@ -31,6 +32,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.CancellationException
 
 data class WebSharePreview(
     val title: String,
@@ -468,10 +470,50 @@ class SharePreviewLoader internal constructor(
         fallbackPreview: WebSharePreview? = null,
     ): WebSharePreview {
         client.resetSession()
-        val configuredRequest = rule.request?.takeIf {
+        val primaryRequest = rule.request?.takeIf {
             Regex(it.urlRegex).containsMatchIn(cleanedUrl)
         }
-        if (configuredRequest != null) runBootstrap(rule, networkPolicy)
+        val requestAttempts = buildList<PreviewRequestRule?> {
+            add(primaryRequest)
+            addAll(
+                rule.fallbackRequests.filter {
+                    Regex(it.urlRegex).containsMatchIn(cleanedUrl)
+                },
+            )
+        }
+        var bootstrapComplete = false
+        var lastFailure: Exception? = null
+        requestAttempts.forEachIndexed { index, configuredRequest ->
+            try {
+                if (configuredRequest != null && !bootstrapComplete) {
+                    runBootstrap(rule, networkPolicy)
+                    bootstrapComplete = true
+                }
+                return loadAttempt(
+                    cleanedUrl = cleanedUrl,
+                    sourceName = sourceName,
+                    rule = rule,
+                    networkPolicy = networkPolicy,
+                    fallbackPreview = fallbackPreview,
+                    configuredRequest = configuredRequest,
+                )
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                lastFailure = error
+                if (index == requestAttempts.lastIndex) throw error
+            }
+        }
+        throw lastFailure ?: error("没有可用的预览请求")
+    }
+
+    private fun loadAttempt(
+        cleanedUrl: String,
+        sourceName: String,
+        rule: SharePreviewRule,
+        networkPolicy: RedirectPolicy,
+        fallbackPreview: WebSharePreview?,
+        configuredRequest: PreviewRequestRule?,
+    ): WebSharePreview {
         val pageUri = URI(
             configuredRequest?.let { transform(cleanedUrl, it.urlRegex, it.urlReplacement) }
                 ?: cleanedUrl,

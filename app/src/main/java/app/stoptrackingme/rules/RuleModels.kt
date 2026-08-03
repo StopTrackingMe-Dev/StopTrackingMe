@@ -114,6 +114,8 @@ data class SharePreviewRule(
     val imageSelectors: List<PreviewFieldSelector>,
     val imageAllowedHosts: Set<String>,
     val request: PreviewRequestRule? = null,
+    /** Ordered alternatives attempted only after the primary or default page request fails. */
+    val fallbackRequests: List<PreviewRequestRule> = emptyList(),
     val bootstrap: PreviewBootstrapRule? = null,
     val pageRequestHeaders: Map<String, String> = emptyMap(),
     val imageRequestHeaders: Map<String, String> = emptyMap(),

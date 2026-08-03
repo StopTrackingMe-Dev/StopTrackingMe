@@ -256,6 +256,7 @@ class RuleParser {
             "imageSelectors",
             "imageAllowedHosts",
             "request",
+            "fallbackRequests",
             "bootstrap",
             "pageRequestHeaders",
             "imageRequestHeaders",
@@ -279,6 +280,7 @@ class RuleParser {
             imageAllowedHosts = json.requiredStringSet("imageAllowedHosts", MAX_HOSTS)
                 .mapTo(linkedSetOf(), ::normalizeHost),
             request = json.get("request")?.let { parsePreviewRequest(it.requiredObject("request")) },
+            fallbackRequests = json.get("fallbackRequests")?.let(::parsePreviewRequests).orEmpty(),
             bootstrap = json.get("bootstrap")?.let { parsePreviewBootstrap(it.requiredObject("bootstrap")) },
             pageRequestHeaders = json.get("pageRequestHeaders")?.let {
                 parseHeaders(it.requiredObject("pageRequestHeaders"))
@@ -287,6 +289,15 @@ class RuleParser {
                 parseHeaders(it.requiredObject("imageRequestHeaders"))
             }.orEmpty(),
         )
+    }
+
+    private fun parsePreviewRequests(element: JsonElement): List<PreviewRequestRule> {
+        if (!element.isJsonArray || element.asJsonArray.size() !in 1..MAX_PREVIEW_FALLBACK_REQUESTS) {
+            throw RuleValidationException("预览备用请求数量无效")
+        }
+        return element.asJsonArray.mapIndexed { index, item ->
+            parsePreviewRequest(item.requiredObject("fallbackRequests[$index]"))
+        }
     }
 
     private fun parsePreviewRequest(json: JsonObject): PreviewRequestRule {
@@ -572,6 +583,7 @@ class RuleParser {
         private const val MAX_HOSTS = 32
         private const val MAX_PARAMETERS = 128
         private const val MAX_PREVIEW_SELECTORS = 8
+        private const val MAX_PREVIEW_FALLBACK_REQUESTS = 3
         private const val MAX_ACCESS_FAILURE_RULES = 8
         private const val MAX_PREVIEW_KEY_LENGTH = 80
         private const val MAX_HEADERS = 16
