@@ -61,6 +61,57 @@ class ShareOverlayCoordinatorTest {
     }
 
     @Test
+    fun `wechat navigation completes only after wechat was opened and source is active again`() {
+        val sourcePackage = "com.example.source"
+
+        assertEquals(
+            WeChatNavigationAction.IGNORE,
+            OverlayCompletionPolicy.forWeChatNavigation(
+                sourcePackage = sourcePackage,
+                eventPackage = "com.tencent.mm",
+                activeWindowPackage = sourcePackage,
+                weChatWasOpened = false,
+            ),
+        )
+        assertEquals(
+            WeChatNavigationAction.MARK_WECHAT_OPENED,
+            OverlayCompletionPolicy.forWeChatNavigation(
+                sourcePackage = sourcePackage,
+                eventPackage = "com.tencent.mm",
+                activeWindowPackage = "com.tencent.mm",
+                weChatWasOpened = false,
+            ),
+        )
+        assertEquals(
+            WeChatNavigationAction.IGNORE,
+            OverlayCompletionPolicy.forWeChatNavigation(
+                sourcePackage = sourcePackage,
+                eventPackage = sourcePackage,
+                activeWindowPackage = sourcePackage,
+                weChatWasOpened = false,
+            ),
+        )
+        assertEquals(
+            WeChatNavigationAction.IGNORE,
+            OverlayCompletionPolicy.forWeChatNavigation(
+                sourcePackage = sourcePackage,
+                eventPackage = sourcePackage,
+                activeWindowPackage = "com.tencent.mm",
+                weChatWasOpened = true,
+            ),
+        )
+        assertEquals(
+            WeChatNavigationAction.COMPLETE,
+            OverlayCompletionPolicy.forWeChatNavigation(
+                sourcePackage = sourcePackage,
+                eventPackage = sourcePackage,
+                activeWindowPackage = sourcePackage,
+                weChatWasOpened = true,
+            ),
+        )
+    }
+
+    @Test
     fun `qq callback policy completes or restores only matching session`() {
         assertEquals(
             OverlayCompletionAction.COMPLETE,

@@ -31,6 +31,7 @@ import app.stoptrackingme.overlay.ShareOverlayEventListener
 import app.stoptrackingme.overlay.OverlayCompletionAction
 import app.stoptrackingme.overlay.OverlayCompletionPolicy
 import app.stoptrackingme.overlay.QQOutcome
+import app.stoptrackingme.overlay.WeChatNavigationAction
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.preview.SharePreviewLoader
@@ -111,12 +112,34 @@ class ShareAccessibilityService : AccessibilityService() {
             overlayController.activeSessionId == snapshotBeforeEvent.sessionId
         ) {
             if (AutomationSafety.isTransientUiPackage(eventPackage)) return
-            val sourceStillActive = rootInActiveWindow?.packageName?.toString() ==
-                snapshotBeforeEvent.sourcePackage
-            if (eventPackage != snapshotBeforeEvent.sourcePackage &&
-                !sourceStillActive &&
-                pendingWeChat == null
-            ) {
+            val activeWindowPackage = rootInActiveWindow?.packageName?.toString()
+            val sourceStillActive = activeWindowPackage == snapshotBeforeEvent.sourcePackage
+            val pending = pendingWeChat?.takeIf {
+                it.sessionId == snapshotBeforeEvent.sessionId
+            }
+            if (pending != null) {
+                when (
+                    OverlayCompletionPolicy.forWeChatNavigation(
+                        sourcePackage = snapshotBeforeEvent.sourcePackage,
+                        eventPackage = eventPackage,
+                        activeWindowPackage = activeWindowPackage,
+                        weChatWasOpened = pending.weChatWasOpened,
+                    )
+                ) {
+                    WeChatNavigationAction.MARK_WECHAT_OPENED -> {
+                        pendingWeChat = pending.copy(weChatWasOpened = true)
+                    }
+                    WeChatNavigationAction.COMPLETE -> {
+                        finishOverlaySession(
+                            pending.sessionId,
+                            "已从微信返回，可以继续处理新的分享",
+                        )
+                    }
+                    WeChatNavigationAction.IGNORE -> Unit
+                }
+                return
+            }
+            if (eventPackage != snapshotBeforeEvent.sourcePackage && !sourceStillActive) {
                 finishOverlaySession(
                     snapshotBeforeEvent.sessionId.orEmpty(),
                     if (pendingSystemShareSessionId == snapshotBeforeEvent.sessionId) {
@@ -1340,6 +1363,7 @@ class ShareAccessibilityService : AccessibilityService() {
     private data class PendingWeChat(
         val sessionId: String,
         val transaction: String,
+        val weChatWasOpened: Boolean = false,
     )
 
     companion object {

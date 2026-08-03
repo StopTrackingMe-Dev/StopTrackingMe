@@ -39,6 +39,12 @@ enum class OverlayCompletionAction {
     RESTORE_FAILED,
 }
 
+enum class WeChatNavigationAction {
+    IGNORE,
+    MARK_WECHAT_OPENED,
+    COMPLETE,
+}
+
 object OverlayCompletionPolicy {
     fun forWeChatCallback(
         expectedTransaction: String?,
@@ -72,6 +78,27 @@ object OverlayCompletionPolicy {
             -> OverlayCompletionAction.RESTORE_FAILED
         }
     }
+
+    fun forWeChatNavigation(
+        sourcePackage: String?,
+        eventPackage: String,
+        activeWindowPackage: String?,
+        weChatWasOpened: Boolean,
+    ): WeChatNavigationAction {
+        if (sourcePackage.isNullOrBlank()) return WeChatNavigationAction.IGNORE
+        if (eventPackage == WECHAT_PACKAGE_NAME && activeWindowPackage != sourcePackage) {
+            return WeChatNavigationAction.MARK_WECHAT_OPENED
+        }
+        if (weChatWasOpened &&
+            eventPackage == sourcePackage &&
+            activeWindowPackage == sourcePackage
+        ) {
+            return WeChatNavigationAction.COMPLETE
+        }
+        return WeChatNavigationAction.IGNORE
+    }
+
+    private const val WECHAT_PACKAGE_NAME = "com.tencent.mm"
 }
 
 fun interface ShareOverlayEventListener {
