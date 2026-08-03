@@ -44,6 +44,29 @@ class PrivacyBoundaryTest {
         assertTrue(text.contains("ShareSessionStore"))
     }
 
+    @Test
+    fun usageReportingCannotReadShareContentOrAccessibilityData() {
+        val usageDirectory = File(mainSourceDirectory(), "app/stoptrackingme/usage")
+        val text = usageDirectory.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .joinToString("\n") { it.readText() }
+
+        listOf(
+            "ShareSessionStore",
+            "ClipboardManager",
+            "AccessibilityNodeInfo",
+            "Intent.EXTRA_TEXT",
+            "originalUrl",
+            "cleanedUrl",
+            "sourceText",
+            "sourcePackage",
+        ).forEach { forbidden ->
+            assertFalse("使用统计代码不得读取或接收分享内容：$forbidden", text.contains(forbidden))
+        }
+        assertTrue(text.contains("shareCount"))
+        assertTrue(text.contains("installationCode"))
+    }
+
     private fun mainSourceDirectory(): File {
         val candidates = listOf(
             File("src/main/java"),

@@ -4,6 +4,7 @@ plugins {
 }
 
 val qqAppId = "1905345753"
+val usageApiBaseUrl = "https://api.stoptracking.me"
 
 android {
     namespace = "app.stoptrackingme"
@@ -17,11 +18,12 @@ android {
         applicationId = "app.stoptrackingme"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.1.1-alpha"
+        versionCode = 7
+        versionName = "0.1.2-alpha"
 
         manifestPlaceholders["qqAppId"] = qqAppId
         buildConfigField("String", "QQ_APP_ID", "\"$qqAppId\"")
+        buildConfigField("String", "USAGE_API_BASE_URL", "\"$usageApiBaseUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

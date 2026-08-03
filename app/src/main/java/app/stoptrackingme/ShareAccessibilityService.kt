@@ -43,6 +43,7 @@ import app.stoptrackingme.rules.CopyTriggerPreferences
 import app.stoptrackingme.rules.InstalledRule
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSessionStore
+import app.stoptrackingme.usage.UsageReporter
 import java.util.UUID
 
 class ShareAccessibilityService : AccessibilityService() {
@@ -1024,6 +1025,8 @@ class ShareAccessibilityService : AccessibilityService() {
                 return@postDelayed
             }
 
+            UsageReporter.recordShare(this)
+
             // A blocked background launch has no direct return value. Hide the result while we
             // wait for the chooser's accessibility event; the watchdog restores it if none arrives.
             overlayController.hide(sessionId)
@@ -1058,6 +1061,7 @@ class ShareAccessibilityService : AccessibilityService() {
             )
         ) {
             WeChatShare.Result.REQUEST_SENT -> {
+                UsageReporter.recordShare(this)
                 pendingWeChat = PendingWeChat(sessionId, transaction)
                 overlayController.hide(sessionId)
                 val timeout = Runnable {

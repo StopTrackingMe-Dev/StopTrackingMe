@@ -10,6 +10,7 @@ import android.widget.Toast
 import app.stoptrackingme.overlay.QQOutcome
 import app.stoptrackingme.overlay.ShareOverlayCoordinator
 import app.stoptrackingme.overlay.ShareOverlayEvent
+import app.stoptrackingme.usage.UsageReporter
 import com.tencent.connect.share.QQShare
 import com.tencent.connect.share.QzoneShare
 import com.tencent.tauth.IUiListener
@@ -182,6 +183,7 @@ class QQShareActivity : Activity() {
                     shareListener,
                 )
             }
+            UsageReporter.recordShare(this)
         }.exceptionOrNull()
         if (launchError != null) {
             finishWith(

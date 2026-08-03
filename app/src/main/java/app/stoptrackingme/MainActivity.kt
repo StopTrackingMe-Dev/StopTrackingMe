@@ -59,6 +59,8 @@ import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
+import app.stoptrackingme.usage.UsageReporter
+import app.stoptrackingme.usage.UsageReportingConsent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,6 +72,7 @@ class MainActivity : ComponentActivity() {
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var qqSdkConsentGranted by mutableStateOf(false)
+    private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)
     private var catalog by mutableStateOf(RuleCatalog(emptyList(), emptyList(), emptyList()))
     private var copyTriggerModes by mutableStateOf<Map<String, CopyTriggerMode>>(emptyMap())
     private var remoteUrl by mutableStateOf("")
@@ -78,6 +81,7 @@ class MainActivity : ComponentActivity() {
     private var remotePreview by mutableStateOf<RemoteRulePreview?>(null)
     private var pendingLinkInput by mutableStateOf<PendingLinkInput?>(null)
     private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
+    private var pendingUsageConsentIntent: Intent? = null
     private var autoReadClipboardOnFocus = false
 
     private val importRuleDocument =
@@ -106,6 +110,7 @@ class MainActivity : ComponentActivity() {
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
+        usageReportingConsent = UsageReporter.getConsent(this)
         autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
         setContent {
@@ -153,6 +158,18 @@ class MainActivity : ComponentActivity() {
                                 qqSdkConsentGranted = false
                                 operationMessage = "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
                             },
+                        )
+
+                        UsageReportingPrivacyCard(
+                            consent = usageReportingConsent,
+                            onOpenPolicy = {
+                                openExternalLink(
+                                    UsageReporter.PRIVACY_POLICY_URL,
+                                    "查看完整隐私政策",
+                                )
+                            },
+                            onGrant = ::grantUsageReporting,
+                            onDeny = ::denyUsageReporting,
                         )
 
                         RuleCatalogSection(
@@ -228,37 +245,50 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                remotePreview?.let { preview ->
-                    SubscriptionTrustDialog(
-                        preview = preview,
-                        onDismiss = { remotePreview = null },
-                        onConfirm = { trustSubscription(preview) },
+                if (usageReportingConsent == UsageReportingConsent.UNSET) {
+                    UsageReportingConsentDialog(
+                        onGrant = ::grantUsageReporting,
+                        onDeny = ::denyUsageReporting,
+                        onOpenPolicy = {
+                            openExternalLink(
+                                UsageReporter.PRIVACY_POLICY_URL,
+                                "查看完整隐私政策",
+                            )
+                        },
                     )
-                }
+                } else {
+                    remotePreview?.let { preview ->
+                        SubscriptionTrustDialog(
+                            preview = preview,
+                            onDismiss = { remotePreview = null },
+                            onConfirm = { trustSubscription(preview) },
+                        )
+                    }
 
-                pendingLinkInput?.let { pending ->
-                    RuleChoiceDialog(
-                        pending = pending,
-                        onDismiss = { pendingLinkInput = null },
-                        onSelect = { candidate ->
-                            pendingLinkInput = null
-                            processLink(pending.sourceText, pending.sourcePackage, candidate)
-                        },
-                    )
-                }
-                pendingUnsupportedUrl?.let { url ->
-                    UnsupportedLinkDialog(
-                        host = displayHost(url),
-                        onDismiss = { pendingUnsupportedUrl = null },
-                        onOpenOriginal = {
-                            pendingUnsupportedUrl = null
-                            openExternalLink(url)
-                        },
-                    )
+                    pendingLinkInput?.let { pending ->
+                        RuleChoiceDialog(
+                            pending = pending,
+                            onDismiss = { pendingLinkInput = null },
+                            onSelect = { candidate ->
+                                pendingLinkInput = null
+                                processLink(pending.sourceText, pending.sourcePackage, candidate)
+                            },
+                        )
+                    }
+                    pendingUnsupportedUrl?.let { url ->
+                        UnsupportedLinkDialog(
+                            host = displayHost(url),
+                            onDismiss = { pendingUnsupportedUrl = null },
+                            onOpenOriginal = {
+                                pendingUnsupportedUrl = null
+                                openExternalLink(url)
+                            },
+                        )
+                    }
                 }
             }
         }
-        handleIncomingIntent(intent)
+        handleIncomingIntentWhenAllowed(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -266,16 +296,20 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.action == Intent.ACTION_MAIN) {
             autoReadClipboardOnFocus = true
-            if (hasWindowFocus()) readClipboard(reportMissing = false)
+            if (hasWindowFocus() && usageReportingConsent != UsageReportingConsent.UNSET) {
+                readClipboard(reportMissing = false)
+            }
         } else {
             autoReadClipboardOnFocus = false
-            handleIncomingIntent(intent)
+            handleIncomingIntentWhenAllowed(intent)
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && autoReadClipboardOnFocus) {
+        if (hasFocus && autoReadClipboardOnFocus &&
+            usageReportingConsent != UsageReportingConsent.UNSET
+        ) {
             autoReadClipboardOnFocus = false
             readClipboard(reportMissing = false)
         }
@@ -296,12 +330,54 @@ class MainActivity : ComponentActivity() {
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
+        usageReportingConsent = UsageReporter.getConsent(this)
+        UsageReporter.flush(this)
         refreshState()
     }
 
     override fun onStop() {
         unregisterReceiver(stateReceiver)
         super.onStop()
+    }
+
+    private fun grantUsageReporting() {
+        UsageReporter.grant(this)
+        finishUsageReportingChoice(
+            consent = UsageReportingConsent.GRANTED,
+            message = "已允许隐私保护的使用统计",
+        )
+    }
+
+    private fun denyUsageReporting() {
+        UsageReporter.deny(this)
+        finishUsageReportingChoice(
+            consent = UsageReportingConsent.DENIED,
+            message = "使用统计已关闭，不影响任何功能",
+        )
+    }
+
+    private fun finishUsageReportingChoice(
+        consent: UsageReportingConsent,
+        message: String,
+    ) {
+        usageReportingConsent = consent
+        operationMessage = message
+        pendingUsageConsentIntent?.let { pending ->
+            pendingUsageConsentIntent = null
+            handleIncomingIntent(pending)
+        }
+        if (hasWindowFocus() && autoReadClipboardOnFocus) {
+            autoReadClipboardOnFocus = false
+            readClipboard(reportMissing = false)
+        }
+    }
+
+    private fun handleIncomingIntentWhenAllowed(incoming: Intent) {
+        if (usageReportingConsent == UsageReportingConsent.UNSET) {
+            if (incoming.action != Intent.ACTION_MAIN) pendingUsageConsentIntent = incoming
+            return
+        }
+        handleIncomingIntent(incoming)
     }
 
     private fun reloadCatalog() {
@@ -671,6 +747,84 @@ private fun ServiceCard(
             )
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun UsageReportingPrivacyCard(
+    consent: UsageReportingConsent,
+    onOpenPolicy: () -> Unit,
+    onGrant: () -> Unit,
+    onDeny: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("隐私保护的使用统计", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when (consent) {
+                    UsageReportingConsent.UNSET -> "尚未选择是否允许使用统计。"
+                    UsageReportingConsent.GRANTED ->
+                        "已允许：仅汇报通过本应用发起分享操作的次数，不汇报链接或分享内容。"
+                    UsageReportingConsent.DENIED ->
+                        "已关闭：不会新增或汇报使用统计；若此前启用，仅会重试删除旧统计记录。所有功能仍可使用。"
+                },
+            )
+            Text(
+                "启用时会生成与设备、账号无关的随机安装实例码；后端不保存原始码，仅以其不可逆 HMAC 作为统计键。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = onOpenPolicy) {
+                Text("查看完整隐私政策")
+            }
+            if (consent == UsageReportingConsent.GRANTED) {
+                OutlinedButton(onClick = onDeny) {
+                    Text("停止并删除使用统计记录")
+                }
+            } else if (consent == UsageReportingConsent.DENIED) {
+                Button(onClick = onGrant) {
+                    Text("允许使用统计")
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun UsageReportingConsentDialog(
+    onGrant: () -> Unit,
+    onDeny: () -> Unit,
+    onOpenPolicy: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("是否允许隐私保护的使用统计？") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("同意后，应用仅汇报你通过本应用发起分享操作的次数。")
+                Text(
+                    "应用会生成与设备、账号无关的随机安装实例码；服务器不保存原始码，只以其不可逆 HMAC 作为统计键。",
+                )
+                Text("后端保存累计分享次数和必要时间；网络重试去重收据保留约 90 天并每日清理。")
+                Text("不会上传链接、标题、剪贴板内容、来源或目标应用、联系人、截图或无障碍界面数据。")
+                Text("拒绝不会影响链接净化、复制、打开或分享等任何功能，也可稍后在首页更改选择。")
+                OutlinedButton(onClick = onOpenPolicy) {
+                    Text("查看完整隐私政策")
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onGrant) { Text("同意") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDeny) { Text("拒绝") }
+        },
+    )
 }
 
 @androidx.compose.runtime.Composable

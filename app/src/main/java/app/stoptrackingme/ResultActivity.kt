@@ -59,6 +59,7 @@ import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSession
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
+import app.stoptrackingme.usage.UsageReporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -230,7 +231,14 @@ class ResultActivity : ComponentActivity() {
             preserveOriginalText = preserveOriginalText,
             extractionRule = installed.rule.clipboardExtraction,
         ) ?: return
-        startActivity(ShareIntentFactory.createChooser(shareText))
+        openMessage = null
+        runCatching {
+            startActivity(ShareIntentFactory.createChooser(shareText))
+        }.onSuccess {
+            UsageReporter.recordShare(this)
+        }.onFailure {
+            openMessage = "系统分享无法启动，请稍后重试。"
+        }
     }
 
     private fun openWeChatShare(destination: WeChatShare.Destination) {
@@ -262,7 +270,10 @@ class ResultActivity : ComponentActivity() {
                 destination = destination,
             )
         ) {
-            WeChatShare.Result.REQUEST_SENT -> null
+            WeChatShare.Result.REQUEST_SENT -> {
+                UsageReporter.recordShare(this)
+                null
+            }
             WeChatShare.Result.WECHAT_NOT_INSTALLED -> "未安装微信，无法使用微信分享。"
             WeChatShare.Result.REQUEST_REJECTED ->
                 "微信未接受分享请求，请确认开放平台中的包名和应用签名配置正确。"
