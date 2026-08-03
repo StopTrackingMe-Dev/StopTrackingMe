@@ -392,11 +392,18 @@ class RuleParser {
                 }
                 PreviewSelectorType.META_PROPERTY,
                 PreviewSelectorType.META_NAME,
+                -> {
+                    if (key == null || key.length > MAX_PREVIEW_KEY_LENGTH ||
+                        !PREVIEW_KEY_PATTERN.matches(key)
+                    ) {
+                        throw RuleValidationException("$label 元数据键无效")
+                    }
+                }
                 PreviewSelectorType.JSON_PATH,
                 PreviewSelectorType.SCRIPT_JSON_PATH,
                 -> {
                     if (key == null || key.length > MAX_PREVIEW_KEY_LENGTH ||
-                        !PREVIEW_KEY_PATTERN.matches(key)
+                        !PREVIEW_JSON_PATH_PATTERN.matches(key)
                     ) {
                         throw RuleValidationException("$label 元数据键无效")
                     }
@@ -591,6 +598,8 @@ class RuleParser {
         private val TOKEN_PATTERN = Regex("""[A-Za-z0-9._-]+""")
         private val PARAMETER_PATTERN = Regex("""[A-Za-z0-9._~-]+""")
         private val PREVIEW_KEY_PATTERN = Regex("""[A-Za-z0-9._:-]+""")
+        private val PREVIEW_JSON_PATH_PATTERN =
+            Regex("""(?:[A-Za-z0-9_:-]+|\*)(?:\.(?:[A-Za-z0-9_:-]+|\*))*""")
         private val HEADER_NAME_PATTERN = Regex("""[A-Za-z0-9!#$%&'*+.^_`|~-]+""")
         private val INTEGER_PATTERN = Regex("""-?(0|[1-9][0-9]*)""")
         private val DANGEROUS_KEYS = listOf(

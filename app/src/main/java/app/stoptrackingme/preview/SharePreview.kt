@@ -310,38 +310,74 @@ internal object PageMetadataParser {
         val result = linkedMapOf<String, JsonElement>()
         document.getElementsByTag("script").forEach { script ->
             val source = script.data().trim()
+            val scriptId = script.attr("id")
+            if (scriptId in rootNames && scriptId !in result) {
+                parseJsonOrNull(source)?.let { result[scriptId] = it }
+            }
             rootNames.filterNot(result::containsKey).forEach { rootName ->
                 val prefix = "window.$rootName="
                 if (source.startsWith(prefix)) {
-                    try {
-                        result[rootName] = JsonParser.parseString(
-                            source.removePrefix(prefix).removeSuffix(";").trim(),
-                        )
-                    } catch (_: Exception) {
-                        // Ignore malformed page state and continue to the next declared fallback.
-                    }
+                    parseJsonOrNull(
+                        source.removePrefix(prefix).removeSuffix(";").trim(),
+                    )?.let { result[rootName] = it }
                 }
             }
         }
         return result
     }
 
+    private fun parseJsonOrNull(source: String): JsonElement? = try {
+        JsonParser.parseString(source)
+    } catch (_: Exception) {
+        // Ignore malformed page state and continue to the next declared fallback.
+        null
+    }
+
     private fun jsonStringAtPath(root: JsonElement, segments: List<String>): String? {
-        var current = root
-        for (segment in segments) {
-            current = when {
-                current.isJsonObject -> current.asJsonObject.get(segment) ?: return null
-                current.isJsonArray -> segment.toIntOrNull()?.let { index ->
-                    current.asJsonArray.takeIf { index in 0 until it.size() }?.get(index)
-                } ?: return null
-                else -> return null
+        return jsonStringAtPath(
+            current = root,
+            segments = segments,
+            index = 0,
+            remainingVisits = intArrayOf(MAX_JSON_PATH_VISITS),
+        )
+    }
+
+    private fun jsonStringAtPath(
+        current: JsonElement,
+        segments: List<String>,
+        index: Int,
+        remainingVisits: IntArray,
+    ): String? {
+        if (remainingVisits[0]-- <= 0) return null
+        if (index == segments.size) {
+            return if (current.isJsonPrimitive && current.asJsonPrimitive.isString) {
+                normalize(current.asString)
+            } else {
+                null
             }
         }
-        return if (current.isJsonPrimitive && current.asJsonPrimitive.isString) {
-            normalize(current.asString)
-        } else {
-            null
+
+        val segment = segments[index]
+        if (segment == "*") {
+            val candidates: Iterable<JsonElement> = when {
+                current.isJsonObject -> current.asJsonObject.entrySet().map { it.value }
+                current.isJsonArray -> current.asJsonArray
+                else -> emptyList()
+            }
+            candidates.forEach { candidate ->
+                jsonStringAtPath(candidate, segments, index + 1, remainingVisits)?.let { return it }
+            }
+            return null
         }
+
+        val next = when {
+            current.isJsonObject -> current.asJsonObject.get(segment)
+            current.isJsonArray -> segment.toIntOrNull()?.let { arrayIndex ->
+                current.asJsonArray.takeIf { arrayIndex in 0 until it.size() }?.get(arrayIndex)
+            }
+            else -> null
+        } ?: return null
+        return jsonStringAtPath(next, segments, index + 1, remainingVisits)
     }
 
     private fun normalize(value: String?): String? {
@@ -351,6 +387,7 @@ internal object PageMetadataParser {
 
     private val WHITESPACE = Regex("""\s+""")
     private const val MAX_METADATA_LENGTH = 2_048
+    private const val MAX_JSON_PATH_VISITS = 512
 }
 
 internal fun interface ThumbnailProcessor {

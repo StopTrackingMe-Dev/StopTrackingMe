@@ -73,6 +73,36 @@ class SharePreviewTest {
     }
 
     @Test
+    fun zhihuRuleReadsQuestionAndExcerptFromIdScriptWithDynamicAnswerKey() {
+        val siteRule = TestFixtures.builtInRule("zhihu")
+        val pageUri = URI("https://www.zhihu.com/question/29634348/answer/2065322935590577003")
+        val html = """
+            <html><head>
+              <title>知乎</title>
+              <meta property="og:title" content="知乎">
+              <meta property="og:description" content="有问题，就会有答案">
+            </head><body>
+              <script id="js-initialData" type="text/json">
+                {"initialState":{"entities":{"answers":{"loading":{},"2065322935590577003":{"question":{"title":"当年你们班第一名和最后一名的人都在干吗？"},"excerpt":"高中第一名在写回答，大学最后一名也在写回答。"}},"questions":{}}}}
+              </script>
+            </body></html>
+        """.trimIndent().toByteArray()
+        val client = PreviewResourceClient {
+            PreviewResource(pageUri, "text/html", html)
+        }
+
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            pageUri.toASCIIString(),
+            "知乎",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+        )
+
+        assertEquals("【知乎】当年你们班第一名和最后一名的人都在干吗？", preview.title)
+        assertEquals("高中第一名在写回答，大学最后一名也在写回答。", preview.description)
+    }
+
+    @Test
     fun xiaohongshuRulePrefersAllowedCoverOverGenericOgImage() {
         val siteRule = TestFixtures.builtInRule("xiaohongshu").sharePreview!!
         val html = """
