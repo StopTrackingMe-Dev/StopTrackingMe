@@ -59,4 +59,28 @@ class ShareOverlayCoordinatorTest {
             OverlayCompletionPolicy.forWeChatCallback("expected", "other", WeChatOutcome.SUCCESS),
         )
     }
+
+    @Test
+    fun `qq callback policy completes or restores only matching session`() {
+        assertEquals(
+            OverlayCompletionAction.COMPLETE,
+            OverlayCompletionPolicy.forQQCallback("session", "session", QQOutcome.SUCCESS),
+        )
+        assertEquals(
+            OverlayCompletionAction.RESTORE_CANCELLED,
+            OverlayCompletionPolicy.forQQCallback("session", "session", QQOutcome.CANCELLED),
+        )
+        assertEquals(
+            OverlayCompletionAction.RESTORE_FAILED,
+            OverlayCompletionPolicy.forQQCallback("session", "session", QQOutcome.NOT_INSTALLED),
+        )
+        assertEquals(
+            OverlayCompletionAction.RESTORE_FAILED,
+            OverlayCompletionPolicy.forQQCallback("session", "session", QQOutcome.UNSUPPORTED),
+        )
+        assertEquals(
+            OverlayCompletionAction.IGNORE,
+            OverlayCompletionPolicy.forQQCallback("session", "other", QQOutcome.FAILED),
+        )
+    }
 }

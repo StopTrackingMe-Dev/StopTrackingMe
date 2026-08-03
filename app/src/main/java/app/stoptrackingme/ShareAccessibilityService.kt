@@ -30,6 +30,7 @@ import app.stoptrackingme.overlay.ShareOverlayEvent
 import app.stoptrackingme.overlay.ShareOverlayEventListener
 import app.stoptrackingme.overlay.OverlayCompletionAction
 import app.stoptrackingme.overlay.OverlayCompletionPolicy
+import app.stoptrackingme.overlay.QQOutcome
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.preview.SharePreviewLoader
@@ -59,6 +60,9 @@ class ShareAccessibilityService : AccessibilityService() {
     private var previewWorker: Thread? = null
     private var pendingWeChat: PendingWeChat? = null
     private var weChatTimeout: Runnable? = null
+    private var pendingQQSessionId: String? = null
+    private var qqLaunchTimeout: Runnable? = null
+    private var qqCallbackTimeout: Runnable? = null
     private var pendingSystemShareSessionId: String? = null
     private var systemShareLaunchTimeout: Runnable? = null
     private var pendingResultPageSessionId: String? = null
@@ -834,7 +838,9 @@ class ShareAccessibilityService : AccessibilityService() {
     private fun onOverlayEvent(event: ShareOverlayEvent): Boolean = when (event) {
         is ShareOverlayEvent.ResultReady -> presentOverlayResult(event.sessionId)
         is ShareOverlayEvent.ResultPageOpened -> handleResultPageOpened(event.sessionId)
+        is ShareOverlayEvent.QQShareStarted -> handleQQShareStarted(event.sessionId)
         is ShareOverlayEvent.WeChatFinished -> handleWeChatFinished(event)
+        is ShareOverlayEvent.QQShareFinished -> handleQQShareFinished(event)
     }
 
     private fun presentOverlayResult(sessionId: String): Boolean {
@@ -855,7 +861,7 @@ class ShareAccessibilityService : AccessibilityService() {
         val needsPreview = result.isSuccess && installed.rule.sharePreview != null
         val status = when {
             !result.isSuccess -> result.failureMessage ?: "没有生成可分享的净化链接"
-            needsPreview -> "链接已净化，正在准备微信卡片…"
+            needsPreview -> "链接已净化，正在准备分享卡片…"
             else -> "链接已净化，可以复制或分享"
         }
         if (!overlayController.showResult(
@@ -905,9 +911,9 @@ class ShareAccessibilityService : AccessibilityService() {
                 overlayPreviewSessionId = sessionId
                 overlayPreview = loaded.getOrElse { fallback }
                 val message = when {
-                    loaded.isFailure -> "链接已净化；微信卡片已回退为应用复制文案"
+                    loaded.isFailure -> "链接已净化；分享卡片已回退为应用复制文案"
                     loaded.getOrNull()?.thumbnail == null -> "链接已净化；网页没有可用封面"
-                    else -> "链接和微信卡片已准备完成"
+                    else -> "链接和分享卡片已准备完成"
                 }
                 overlayController.updateStatus(sessionId, message, previewReady = true)
             }
@@ -932,6 +938,14 @@ class ShareAccessibilityService : AccessibilityService() {
                 sessionId,
                 WeChatShare.Destination.TIMELINE,
             )
+            ShareOverlayAction.QQ_FRIEND -> openOverlayQQ(
+                sessionId,
+                QQShareDestination.FRIEND,
+            )
+            ShareOverlayAction.QQ_QZONE -> openOverlayQQ(
+                sessionId,
+                QQShareDestination.QZONE,
+            )
             ShareOverlayAction.COPY -> copyOverlayLink(sessionId)
             ShareOverlayAction.OPEN_FULL_RESULT -> openFullResult(sessionId)
             ShareOverlayAction.CLOSE -> finishOverlaySession(sessionId, "本次分享会话已关闭")
@@ -941,6 +955,8 @@ class ShareAccessibilityService : AccessibilityService() {
     private fun openOverlaySystemShare(sessionId: String) {
         if (pendingSystemShareSessionId != null ||
             pendingResultPageSessionId != null ||
+            pendingQQSessionId != null ||
+            pendingWeChat != null ||
             overlayController.activeSessionId != sessionId
         ) {
             return
@@ -993,6 +1009,14 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun openOverlayWeChat(sessionId: String, destination: WeChatShare.Destination) {
+        if (pendingWeChat != null ||
+            pendingQQSessionId != null ||
+            pendingSystemShareSessionId != null ||
+            pendingResultPageSessionId != null ||
+            overlayController.activeSessionId != sessionId
+        ) {
+            return
+        }
         val session = ShareSessionStore.get(sessionId) ?: return
         val cleanedUrl = session.result?.cleanedUrl ?: return
         val installed = rules.findInstalledRule(session.ruleKey) ?: return
@@ -1070,6 +1094,131 @@ class ShareAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun openOverlayQQ(sessionId: String, destination: QQShareDestination) {
+        if (pendingQQSessionId != null ||
+            pendingSystemShareSessionId != null ||
+            pendingResultPageSessionId != null ||
+            pendingWeChat != null ||
+            overlayController.activeSessionId != sessionId
+        ) {
+            return
+        }
+        val session = ShareSessionStore.get(sessionId) ?: return
+        val cleanedUrl = session.result?.cleanedUrl ?: return
+        val installed = rules.findInstalledRule(session.ruleKey) ?: return
+        val preview = overlayPreview.takeIf { overlayPreviewSessionId == sessionId }
+        val defaultHost = cleanedUrl.toUri().host.orEmpty()
+        val payload = QQSharePayload.create(
+            url = cleanedUrl,
+            title = preview?.title ?: "【${installed.rule.displayName}】网页内容",
+            description = preview?.description ?: "来自 $defaultHost 的净化链接",
+            thumbnail = preview?.thumbnail,
+        )
+
+        pendingQQSessionId = sessionId
+        overlayController.updateStatus(sessionId, "正在打开 QQ 分享…")
+        val launchDelay = if (attachLaunchBridge()) LAUNCH_BRIDGE_SETTLE_MS else 0L
+        val timeout = Runnable {
+            if (pendingQQSessionId != sessionId) return@Runnable
+            cancelQQShare(sessionId)
+            overlayController.updateStatus(sessionId, "系统未允许打开 QQ 分享，请重试")
+            ServiceStatus.update(
+                this,
+                "QQ 分享未能打开，净化结果仍在悬浮窗中",
+                AutomationStage.SHOW_RESULT,
+            )
+        }
+        qqLaunchTimeout = timeout
+        handler.postDelayed(timeout, launchDelay + QQ_SHARE_LAUNCH_TIMEOUT_MS)
+        handler.postDelayed({
+            if (pendingQQSessionId != sessionId) return@postDelayed
+            val launchError = runCatching {
+                startActivity(
+                    QQShareActivity.createIntent(
+                        context = this,
+                        destination = destination,
+                        payload = payload,
+                        overlaySessionId = sessionId,
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION),
+                )
+            }.exceptionOrNull()
+            if (launchError != null) {
+                if (isDebugBuild) Log.w(TAG, "Unable to open QQ share from overlay", launchError)
+                cancelQQShare(sessionId)
+                overlayController.updateStatus(sessionId, "QQ 分享打开失败，请重试")
+            }
+        }, launchDelay)
+    }
+
+    private fun handleQQShareStarted(sessionId: String): Boolean {
+        if (pendingQQSessionId != sessionId) return false
+        qqLaunchTimeout?.let(handler::removeCallbacks)
+        qqLaunchTimeout = null
+        removeLaunchBridge()
+        overlayController.hide(sessionId)
+        val timeout = Runnable {
+            if (pendingQQSessionId == sessionId) {
+                finishOverlaySession(sessionId, "QQ 未返回分享结果，本次悬浮会话已超时结束")
+            }
+        }
+        qqCallbackTimeout = timeout
+        handler.postDelayed(timeout, QQ_CALLBACK_TIMEOUT_MS)
+        ServiceStatus.update(this, "等待 QQ 分享结果", AutomationStage.SHOW_RESULT)
+        return true
+    }
+
+    private fun handleQQShareFinished(event: ShareOverlayEvent.QQShareFinished): Boolean {
+        val completion = OverlayCompletionPolicy.forQQCallback(
+            expectedSessionId = pendingQQSessionId,
+            receivedSessionId = event.sessionId,
+            outcome = event.outcome,
+        )
+        if (completion == OverlayCompletionAction.IGNORE) return false
+        val sessionId = event.sessionId
+        cancelQQShare(sessionId)
+        return when (completion) {
+            OverlayCompletionAction.COMPLETE -> {
+                finishOverlaySession(sessionId, "QQ 分享已完成")
+                true
+            }
+            OverlayCompletionAction.RESTORE_CANCELLED -> {
+                restoreAfterQQ(sessionId, "已取消 QQ 分享，可以重新选择")
+                true
+            }
+            OverlayCompletionAction.RESTORE_FAILED -> {
+                val message = when (event.outcome) {
+                    QQOutcome.NOT_INSTALLED ->
+                        "未安装支持此功能的手机 QQ，可以选择其他方式"
+                    QQOutcome.UNSUPPORTED ->
+                        "当前手机 QQ 版本不支持此分享方式"
+                    else -> "QQ 分享失败，可以重试"
+                }
+                restoreAfterQQ(sessionId, message)
+                true
+            }
+            OverlayCompletionAction.IGNORE -> false
+        }
+    }
+
+    private fun restoreAfterQQ(sessionId: String, message: String) {
+        val restored = overlayController.restore(sessionId, message)
+        if (restored) {
+            ServiceStatus.update(this, message, AutomationStage.SHOW_RESULT)
+        } else {
+            finishOverlaySession(sessionId, "悬浮窗恢复失败，本次会话已结束")
+        }
+    }
+
+    private fun cancelQQShare(sessionId: String? = null) {
+        if (sessionId != null && pendingQQSessionId != sessionId) return
+        qqLaunchTimeout?.let(handler::removeCallbacks)
+        qqCallbackTimeout?.let(handler::removeCallbacks)
+        qqLaunchTimeout = null
+        qqCallbackTimeout = null
+        pendingQQSessionId = null
+        removeLaunchBridge()
+    }
+
     private fun copyOverlayLink(sessionId: String) {
         val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
         val clipboard = getSystemService(ClipboardManager::class.java)
@@ -1079,6 +1228,9 @@ class ShareAccessibilityService : AccessibilityService() {
 
     private fun openFullResult(sessionId: String) {
         if (pendingResultPageSessionId != null ||
+            pendingSystemShareSessionId != null ||
+            pendingQQSessionId != null ||
+            pendingWeChat != null ||
             overlayController.activeSessionId != sessionId ||
             ShareSessionStore.get(sessionId)?.result == null
         ) {
@@ -1166,6 +1318,7 @@ class ShareAccessibilityService : AccessibilityService() {
         weChatTimeout?.let(handler::removeCallbacks)
         weChatTimeout = null
         pendingWeChat = null
+        cancelQQShare()
     }
 
     private fun cancelTask(sessionId: String, message: String) {
@@ -1207,6 +1360,8 @@ class ShareAccessibilityService : AccessibilityService() {
         private const val SYSTEM_SHARE_LAUNCH_TIMEOUT_MS = 2_500L
         private const val RESULT_PAGE_LAUNCH_TIMEOUT_MS = 2_500L
         private const val WECHAT_CALLBACK_TIMEOUT_MS = 120_000L
+        private const val QQ_SHARE_LAUNCH_TIMEOUT_MS = 2_500L
+        private const val QQ_CALLBACK_TIMEOUT_MS = 120_000L
         private val EVENT_INDEPENDENT_STAGES = setOf(
             AutomationStage.CLICK_ONCE,
             AutomationStage.CAPTURE,

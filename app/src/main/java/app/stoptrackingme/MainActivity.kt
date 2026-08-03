@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
+    private var qqSdkConsentGranted by mutableStateOf(false)
     private var catalog by mutableStateOf(RuleCatalog(emptyList(), emptyList(), emptyList()))
     private var copyTriggerModes by mutableStateOf<Map<String, CopyTriggerMode>>(emptyMap())
     private var remoteUrl by mutableStateOf("")
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
         repository = RuleRepository.get(this)
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
+        qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
         setContent {
@@ -135,6 +137,21 @@ class MainActivity : ComponentActivity() {
                             onResultPresentationModeChange = { mode ->
                                 ResultPresentationPreferences.set(this@MainActivity, mode)
                                 resultPresentationMode = mode
+                            },
+                        )
+
+                        QQSdkPrivacyCard(
+                            consentGranted = qqSdkConsentGranted,
+                            onOpenPolicy = {
+                                openExternalLink(
+                                    QQSdkConsent.PRIVACY_POLICY_URL,
+                                    "查看 QQ 互联 SDK 隐私说明",
+                                )
+                            },
+                            onRevoke = {
+                                QQSdkConsent.revoke(this@MainActivity)
+                                qqSdkConsentGranted = false
+                                operationMessage = "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
                             },
                         )
 
@@ -278,6 +295,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
+        qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         refreshState()
     }
 
@@ -429,11 +447,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openExternalLink(url: String) {
+    private fun openExternalLink(
+        url: String,
+        title: String = "使用其他应用打开原链接",
+    ) {
         val chooser = ExternalLinkIntentFactory.createChooser(
             context = this,
             url = url,
-            title = "使用其他应用打开原链接",
+            title = title,
         )
         if (chooser == null) {
             operationMessage = "没有找到其他可以打开此链接的应用"
@@ -648,6 +669,37 @@ private fun ServiceCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun QQSdkPrivacyCard(
+    consentGranted: Boolean,
+    onOpenPolicy: () -> Unit,
+    onRevoke: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("QQ 分享隐私", style = MaterialTheme.typography.titleMedium)
+            Text(
+                if (consentGranted) {
+                    "QQ 互联 SDK 已获授权，仅在你主动选择 QQ 分享时使用。"
+                } else {
+                    "QQ 互联 SDK 尚未启用；首次使用 QQ 分享时会先说明并征求同意。"
+                },
+            )
+            OutlinedButton(onClick = onOpenPolicy) {
+                Text("查看 QQ SDK 隐私说明")
+            }
+            if (consentGranted) {
+                OutlinedButton(onClick = onRevoke) {
+                    Text("撤回 QQ SDK 授权")
+                }
+            }
         }
     }
 }

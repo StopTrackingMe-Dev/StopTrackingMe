@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val qqAppId = "1905345753"
+
 android {
     namespace = "app.stoptrackingme"
     compileSdk {
@@ -17,6 +19,9 @@ android {
         targetSdk = 36
         versionCode = 6
         versionName = "0.1.1-alpha"
+
+        manifestPlaceholders["qqAppId"] = qqAppId
+        buildConfigField("String", "QQ_APP_ID", "\"$qqAppId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -35,6 +40,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }
@@ -51,6 +57,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.re2j)
     implementation(libs.wechat.open.sdk)
+    implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))
     implementation(libs.jsoup)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

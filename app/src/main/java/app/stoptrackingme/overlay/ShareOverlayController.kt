@@ -28,6 +28,8 @@ enum class ShareOverlayAction {
     SYSTEM_SHARE,
     WECHAT_FRIEND,
     WECHAT_TIMELINE,
+    QQ_FRIEND,
+    QQ_QZONE,
     COPY,
     OPEN_FULL_RESULT,
     CLOSE,
@@ -305,6 +307,14 @@ class ShareOverlayController(
                     action(current.sessionId, ShareOverlayAction.WECHAT_TIMELINE)
                 },
             ), matchWrap(top = 6))
+            card.addView(actionRow(
+                actionButton("QQ 好友", current.previewReady) {
+                    action(current.sessionId, ShareOverlayAction.QQ_FRIEND)
+                },
+                actionButton("QQ 空间", current.previewReady) {
+                    action(current.sessionId, ShareOverlayAction.QQ_QZONE)
+                },
+            ), matchWrap(top = 4))
             card.addView(actionRow(
                 actionButton("系统分享") {
                     action(current.sessionId, ShareOverlayAction.SYSTEM_SHARE)

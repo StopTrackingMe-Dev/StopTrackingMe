@@ -5,15 +5,30 @@ sealed interface ShareOverlayEvent {
 
     data class ResultPageOpened(val sessionId: String) : ShareOverlayEvent
 
+    data class QQShareStarted(val sessionId: String) : ShareOverlayEvent
+
     data class WeChatFinished(
         val transaction: String?,
         val outcome: WeChatOutcome,
+    ) : ShareOverlayEvent
+
+    data class QQShareFinished(
+        val sessionId: String,
+        val outcome: QQOutcome,
     ) : ShareOverlayEvent
 }
 
 enum class WeChatOutcome {
     SUCCESS,
     CANCELLED,
+    FAILED,
+}
+
+enum class QQOutcome {
+    SUCCESS,
+    CANCELLED,
+    NOT_INSTALLED,
+    UNSUPPORTED,
     FAILED,
 }
 
@@ -37,6 +52,24 @@ object OverlayCompletionPolicy {
             WeChatOutcome.SUCCESS -> OverlayCompletionAction.COMPLETE
             WeChatOutcome.CANCELLED -> OverlayCompletionAction.RESTORE_CANCELLED
             WeChatOutcome.FAILED -> OverlayCompletionAction.RESTORE_FAILED
+        }
+    }
+
+    fun forQQCallback(
+        expectedSessionId: String?,
+        receivedSessionId: String,
+        outcome: QQOutcome,
+    ): OverlayCompletionAction {
+        if (expectedSessionId == null || receivedSessionId != expectedSessionId) {
+            return OverlayCompletionAction.IGNORE
+        }
+        return when (outcome) {
+            QQOutcome.SUCCESS -> OverlayCompletionAction.COMPLETE
+            QQOutcome.CANCELLED -> OverlayCompletionAction.RESTORE_CANCELLED
+            QQOutcome.NOT_INSTALLED,
+            QQOutcome.UNSUPPORTED,
+            QQOutcome.FAILED,
+            -> OverlayCompletionAction.RESTORE_FAILED
         }
     }
 }

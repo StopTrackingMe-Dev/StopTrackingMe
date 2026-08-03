@@ -3,11 +3,11 @@ package app.stoptrackingme
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import androidx.core.net.toUri
 import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.ShareTextBuilder
@@ -74,6 +75,14 @@ class ResultActivity : ComponentActivity() {
     private var previewRetryable by mutableStateOf(false)
     private var previewJob: Job? = null
     private val previewLoader = SharePreviewLoader()
+    private val qqShareLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        openMessage = when (QQShareActivity.resultOutcome(result.data)) {
+            QQShareOutcome.SUCCESS -> null
+            else -> QQShareActivity.resultMessage(result.data)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,6 +125,12 @@ class ResultActivity : ComponentActivity() {
                                 },
                                 onShareToWeChatTimeline = {
                                     openWeChatShare(WeChatShare.Destination.TIMELINE)
+                                },
+                                onShareToQQFriend = {
+                                    openQQShare(QQShareDestination.FRIEND)
+                                },
+                                onShareToQzone = {
+                                    openQQShare(QQShareDestination.QZONE)
                                 },
                                 onOpen = ::openCleanedLink,
                                 onClose = ::finish,
@@ -167,7 +182,7 @@ class ResultActivity : ComponentActivity() {
         val cleanedUrl = result.cleanedUrl ?: return
         val installed = RuleRepository.get(this).findInstalledRule(current.ruleKey) ?: return
         val previewRule = installed.rule.sharePreview ?: run {
-            previewMessage = "当前规则未配置网页预览，将使用默认微信卡片。"
+            previewMessage = "当前规则未配置网页预览，将使用默认分享卡片。"
             return
         }
         previewing = true
@@ -177,7 +192,7 @@ class ResultActivity : ComponentActivity() {
                 sourceName = installed.rule.displayName,
                 sourceText = result.sourceText,
                 urlRegex = installed.rule.clipboardExtraction.urlRegex,
-                defaultHost = Uri.parse(cleanedUrl).host.orEmpty(),
+                defaultHost = cleanedUrl.toUri().host.orEmpty(),
             )
             val loaded = runCatching {
                 previewLoader.load(
@@ -227,7 +242,7 @@ class ResultActivity : ComponentActivity() {
             extractionRule = installed.rule.clipboardExtraction,
         ) ?: return
         val preview = sharePreview
-        val defaultHost = Uri.parse(cleanedUrl).host.orEmpty()
+        val defaultHost = cleanedUrl.toUri().host.orEmpty()
         val title = preview?.title ?: "【${installed.rule.displayName}】网页内容"
         val description = preview?.description ?: if (preserveOriginalText) {
             shareText
@@ -249,6 +264,42 @@ class ResultActivity : ComponentActivity() {
             WeChatShare.Result.WECHAT_NOT_INSTALLED -> "未安装微信，无法使用微信分享。"
             WeChatShare.Result.REQUEST_REJECTED ->
                 "微信未接受分享请求，请确认开放平台中的包名和应用签名配置正确。"
+        }
+    }
+
+    private fun openQQShare(destination: QQShareDestination) {
+        val current = ShareSessionStore.get(sessionId) ?: return
+        val result = current.result ?: return
+        val cleanedUrl = result.cleanedUrl ?: return
+        val installed = RuleRepository.get(this).findInstalledRule(current.ruleKey) ?: return
+        val shareText = ShareTextBuilder.build(
+            result = result,
+            preserveOriginalText = preserveOriginalText,
+            extractionRule = installed.rule.clipboardExtraction,
+        ) ?: return
+        val preview = sharePreview
+        val defaultHost = cleanedUrl.toUri().host.orEmpty()
+        val payload = QQSharePayload.create(
+            url = cleanedUrl,
+            title = preview?.title ?: "【${installed.rule.displayName}】网页内容",
+            description = preview?.description ?: if (preserveOriginalText) {
+                shareText
+            } else {
+                "来自 $defaultHost 的净化链接"
+            },
+            thumbnail = preview?.thumbnail,
+        )
+        openMessage = null
+        runCatching {
+            qqShareLauncher.launch(
+                QQShareActivity.createIntent(
+                    context = this,
+                    destination = destination,
+                    payload = payload,
+                ),
+            )
+        }.onFailure {
+            openMessage = "QQ 分享无法启动，请稍后重试。"
         }
     }
 
@@ -290,6 +341,8 @@ private fun ResultContent(
     onShare: () -> Unit,
     onShareToWeChatFriend: () -> Unit,
     onShareToWeChatTimeline: () -> Unit,
+    onShareToQQFriend: () -> Unit,
+    onShareToQzone: () -> Unit,
     onOpen: () -> Unit,
     onClose: () -> Unit,
     openMessage: String?,
@@ -321,7 +374,7 @@ private fun ResultContent(
     }
 
     if (result.isSuccess) {
-        Text("微信卡片预览", style = MaterialTheme.typography.titleMedium)
+        Text("分享卡片预览", style = MaterialTheme.typography.titleMedium)
         if (previewing) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -331,7 +384,7 @@ private fun ResultContent(
                 Text("正在读取公开网页的标题、摘要和封面…")
             }
         } else if (sharePreview != null) {
-            WeChatPreviewCard(sharePreview)
+            SharePreviewCard(sharePreview)
         }
         previewMessage?.let {
             Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -357,6 +410,20 @@ private fun ResultContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("分享到微信朋友圈")
+        }
+        Button(
+            onClick = onShareToQQFriend,
+            enabled = !previewing,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("分享给 QQ 好友")
+        }
+        Button(
+            onClick = onShareToQzone,
+            enabled = !previewing,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("分享到 QQ 空间")
         }
         Button(
             onClick = onShare,
@@ -420,23 +487,23 @@ internal fun previewFailureMessage(error: Throwable): String {
     val tooLarge = causes.filterIsInstance<PreviewResourceTooLargeException>().firstOrNull()
     if (tooLarge != null) {
         val limitMiB = tooLarge.maxBytes / (1024 * 1024)
-        return "公开网页内容超过 ${limitMiB} MiB，无法生成预览；将使用默认微信卡片。"
+        return "公开网页内容超过 ${limitMiB} MiB，无法生成预览；将使用默认分享卡片。"
     }
     val http = causes.filterIsInstance<PreviewHttpException>().firstOrNull()
     if (http != null) {
-        return "公开网页返回 HTTP ${http.statusCode}，无法生成预览；将使用默认微信卡片。"
+        return "公开网页返回 HTTP ${http.statusCode}，无法生成预览；将使用默认分享卡片。"
     }
     if (causes.any { it is SocketTimeoutException }) {
-        return "读取公开网页超时；将使用默认微信卡片，可稍后重试。"
+        return "读取公开网页超时；将使用默认分享卡片，可稍后重试。"
     }
     if (causes.any { it is NetworkResolutionException }) {
-        return "无法解析公开网页域名；将使用默认微信卡片，可检查网络后重试。"
+        return "无法解析公开网页域名；将使用默认分享卡片，可检查网络后重试。"
     }
-    return "未能读取公开网页信息，将使用默认微信卡片；可稍后重试。"
+    return "未能读取公开网页信息，将使用默认分享卡片；可稍后重试。"
 }
 
 @androidx.compose.runtime.Composable
-private fun WeChatPreviewCard(preview: WebSharePreview) {
+private fun SharePreviewCard(preview: WebSharePreview) {
     val thumbnail = remember(preview.thumbnail) {
         preview.thumbnail?.let { bytes ->
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
