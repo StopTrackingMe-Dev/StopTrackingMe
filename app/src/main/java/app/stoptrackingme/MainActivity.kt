@@ -63,6 +63,17 @@ import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
+import app.stoptrackingme.update.AppUpdateCard
+import app.stoptrackingme.update.AppUpdateClient
+import app.stoptrackingme.update.AppUpdateDownloadProgress
+import app.stoptrackingme.update.AppUpdateDownloadSource
+import app.stoptrackingme.update.AppUpdateInstaller
+import app.stoptrackingme.update.AppUpdatePreferences
+import app.stoptrackingme.update.AppUpdateRelease
+import app.stoptrackingme.update.AppUpdateStatus
+import app.stoptrackingme.update.DownloadedAppUpdate
+import app.stoptrackingme.update.UpdateAvailableDialog
+import app.stoptrackingme.update.isNewerThan
 import app.stoptrackingme.usage.UsageReporter
 import app.stoptrackingme.usage.UsageReportingConsent
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +83,7 @@ import java.net.URI
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
+    private val updateClient = AppUpdateClient()
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
@@ -85,6 +97,9 @@ class MainActivity : ComponentActivity() {
     private var remotePreview by mutableStateOf<RemoteRulePreview?>(null)
     private var pendingLinkInput by mutableStateOf<PendingLinkInput?>(null)
     private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
+    private var updateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Idle)
+    private var updateDialogRelease by mutableStateOf<AppUpdateRelease?>(null)
+    private var pendingInstallUpdate: DownloadedAppUpdate? = null
     private var pendingUsageConsentIntent: Intent? = null
     private var autoReadClipboardOnFocus = false
 
@@ -101,6 +116,18 @@ class MainActivity : ComponentActivity() {
                 "已设为默认网页处理应用"
             } else {
                 "未更改默认网页处理应用；仍可在“打开方式”中选择本应用"
+            }
+        }
+
+    private val requestUpdateInstallPermission =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val update = pendingInstallUpdate ?: return@registerForActivityResult
+            pendingInstallUpdate = null
+            if (AppUpdateInstaller.canRequestInstall(this)) {
+                launchSystemInstaller(update)
+            } else {
+                updateStatus = AppUpdateStatus.Ready(update)
+                operationMessage = "尚未允许本应用安装更新，可再次点击“安装更新”重试"
             }
         }
 
@@ -241,6 +268,31 @@ class MainActivity : ComponentActivity() {
                             Text("管理链接打开方式、自动化结果显示和隐私选项。")
                             OperationMessage(operationMessage)
 
+                            AppUpdateCard(
+                                status = updateStatus,
+                                currentVersionName = BuildConfig.VERSION_NAME,
+                                currentVersionCode = BuildConfig.VERSION_CODE,
+                                onCheck = { checkForUpdates(interactive = true) },
+                                onDownloadMirror = { release ->
+                                    downloadUpdate(
+                                        release = release,
+                                        source = AppUpdateDownloadSource.MIRROR,
+                                        allowFallback = true,
+                                    )
+                                },
+                                onDownloadGithub = { release ->
+                                    downloadUpdate(
+                                        release = release,
+                                        source = AppUpdateDownloadSource.GITHUB,
+                                        allowFallback = false,
+                                    )
+                                },
+                                onInstall = ::requestInstallUpdate,
+                                onOpenRelease = { url ->
+                                    openExternalLink(url, "查看 StopTrackingMe 发布说明")
+                                },
+                            )
+
                             DefaultBrowserCard(
                                 enabled = !busy,
                                 onRequestBrowserRole = ::requestDefaultBrowserRole,
@@ -297,6 +349,37 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 } else {
+                    updateDialogRelease?.let { release ->
+                        UpdateAvailableDialog(
+                            release = release,
+                            onDismiss = {
+                                AppUpdatePreferences.dismiss(this@MainActivity, release.tagName)
+                                updateDialogRelease = null
+                            },
+                            onDownloadMirror = {
+                                updateDialogRelease = null
+                                downloadUpdate(
+                                    release = release,
+                                    source = AppUpdateDownloadSource.MIRROR,
+                                    allowFallback = true,
+                                )
+                            },
+                            onDownloadGithub = {
+                                updateDialogRelease = null
+                                downloadUpdate(
+                                    release = release,
+                                    source = AppUpdateDownloadSource.GITHUB,
+                                    allowFallback = false,
+                                )
+                            },
+                            onOpenRelease = release.releasePageUrl?.let { url ->
+                                {
+                                    openExternalLink(url, "查看 StopTrackingMe 发布说明")
+                                }
+                            },
+                        )
+                    }
+
                     remotePreview?.let { preview ->
                         SubscriptionTrustDialog(
                             preview = preview,
@@ -329,6 +412,9 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIncomingIntentWhenAllowed(intent)
+        if (AppUpdatePreferences.shouldAutomaticallyCheck(this)) {
+            checkForUpdates(interactive = false)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -647,6 +733,134 @@ class MainActivity : ComponentActivity() {
                     onFailure = { "刷新失败，继续使用旧版本：${displayError(it)}" },
                 )
             }
+        }
+    }
+
+    private fun checkForUpdates(interactive: Boolean) {
+        if (updateStatus is AppUpdateStatus.Checking ||
+            updateStatus is AppUpdateStatus.Downloading
+        ) {
+            return
+        }
+        updateStatus = AppUpdateStatus.Checking
+        lifecycleScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    val release = updateClient.fetchRelease()
+                    val available = release.isNewerThan(
+                        installedVersionCode = BuildConfig.VERSION_CODE.toLong(),
+                        installedVersionName = BuildConfig.VERSION_NAME,
+                    )
+                    release to available
+                }
+            }
+            outcome.fold(
+                onSuccess = { (release, available) ->
+                    AppUpdatePreferences.recordSuccessfulCheck(this@MainActivity)
+                    if (available) {
+                        updateStatus = AppUpdateStatus.Available(release)
+                        if (interactive ||
+                            !AppUpdatePreferences.isDismissed(this@MainActivity, release.tagName)
+                        ) {
+                            updateDialogRelease = release
+                        }
+                    } else {
+                        updateDialogRelease = null
+                        updateStatus = AppUpdateStatus.UpToDate(release)
+                    }
+                },
+                onFailure = { error ->
+                    updateStatus = if (interactive) {
+                        AppUpdateStatus.Failed("检查更新失败：${displayError(error)}")
+                    } else {
+                        AppUpdateStatus.Idle
+                    }
+                },
+            )
+        }
+    }
+
+    private fun downloadUpdate(
+        release: AppUpdateRelease,
+        source: AppUpdateDownloadSource,
+        allowFallback: Boolean,
+    ) {
+        if (updateStatus is AppUpdateStatus.Downloading) return
+        updateDialogRelease = null
+        operationMessage = null
+        updateStatus = AppUpdateStatus.Downloading(
+            release = release,
+            progress = AppUpdateDownloadProgress(
+                source = source,
+                downloadedBytes = 0,
+                totalBytes = release.asset.sizeBytes,
+            ),
+        )
+        lifecycleScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    val downloaded = updateClient.download(
+                        release = release,
+                        updateDirectory = cacheDir.resolve("updates"),
+                        preferredSource = source,
+                        allowFallback = allowFallback,
+                        onProgress = { progress ->
+                            runOnUiThread {
+                                updateStatus = AppUpdateStatus.Downloading(release, progress)
+                            }
+                        },
+                    )
+                    AppUpdateInstaller.validateArchive(this@MainActivity, downloaded)
+                    downloaded
+                }
+            }
+            outcome.fold(
+                onSuccess = { downloaded ->
+                    updateStatus = AppUpdateStatus.Ready(downloaded)
+                    requestInstallUpdate(downloaded)
+                },
+                onFailure = { error ->
+                    updateStatus = AppUpdateStatus.Failed(
+                        message = "更新下载失败：${displayError(error)}",
+                        release = release,
+                    )
+                },
+            )
+        }
+    }
+
+    private fun requestInstallUpdate(update: DownloadedAppUpdate) {
+        if (!update.file.isFile) {
+            updateStatus = AppUpdateStatus.Failed(
+                message = "已下载的更新文件不存在，请重新下载",
+                release = update.release,
+            )
+            return
+        }
+        if (AppUpdateInstaller.canRequestInstall(this)) {
+            launchSystemInstaller(update)
+            return
+        }
+        pendingInstallUpdate = update
+        runCatching {
+            requestUpdateInstallPermission.launch(
+                AppUpdateInstaller.createPermissionIntent(this),
+            )
+        }.onFailure {
+            pendingInstallUpdate = null
+            updateStatus = AppUpdateStatus.Ready(update)
+            operationMessage = "无法打开安装未知应用授权页面，请在系统设置中手动允许"
+        }
+    }
+
+    private fun launchSystemInstaller(update: DownloadedAppUpdate) {
+        runCatching {
+            startActivity(AppUpdateInstaller.createInstallIntent(this, update.file))
+        }.onSuccess {
+            operationMessage = "已交给系统安装器，请确认安装更新"
+        }.onFailure { error ->
+            updateStatus = AppUpdateStatus.Ready(update)
+            operationMessage = "无法打开系统安装器：${displayError(error)}"
         }
     }
 

@@ -5,6 +5,9 @@ plugins {
 
 val qqAppId = "1905345753"
 val usageApiBaseUrl = "https://api.stoptracking.me"
+val updateManifestUrl = "https://stoptracking.me/latest.json"
+val updateMirrorUrl =
+    "https://1813680010.cdn.123clouddisk.com/1813680010/s/StopTrackingMe/app-release.apk"
 
 android {
     namespace = "app.stoptrackingme"
@@ -24,6 +27,8 @@ android {
         manifestPlaceholders["qqAppId"] = qqAppId
         buildConfigField("String", "QQ_APP_ID", "\"$qqAppId\"")
         buildConfigField("String", "USAGE_API_BASE_URL", "\"$usageApiBaseUrl\"")
+        buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$updateManifestUrl\"")
+        buildConfigField("String", "UPDATE_MIRROR_URL", "\"$updateMirrorUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
