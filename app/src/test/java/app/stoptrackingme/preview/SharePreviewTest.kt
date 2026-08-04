@@ -88,24 +88,14 @@ class SharePreviewTest {
               </script>
             </body></html>
         """.trimIndent().toByteArray()
-        val requests = mutableListOf<PreviewFetchRequest>()
-        val client = PreviewResourceClient {
-            requests += it
-            PreviewResource(pageUri, "text/html", html)
-        }
-
-        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
-            pageUri.toASCIIString(),
-            "知乎",
+        val metadata = PageMetadataParser.parse(
+            html,
+            pageUri,
             siteRule.sharePreview!!,
-            siteRule.redirectPolicy,
         )
 
-        assertEquals("【知乎】当年你们班第一名和最后一名的人都在干吗？", preview.title)
-        assertEquals("高中第一名在写回答，大学最后一名也在写回答。", preview.description)
-        assertEquals(2, requests.size)
-        assertEquals("web-render.zhihu.com", requests[0].uri.host)
-        assertEquals(pageUri, requests[1].uri)
+        assertEquals("当年你们班第一名和最后一名的人都在干吗？", metadata.title)
+        assertEquals("高中第一名在写回答，大学最后一名也在写回答。", metadata.description)
     }
 
     @Test
@@ -147,6 +137,62 @@ class SharePreviewTest {
         assertEquals(PreviewHttpMethod.GET, requests[0].method)
         assertEquals("application/json, text/plain, */*", requests[0].headers["Accept"])
         assertEquals("https://www.zhihu.com/", requests[0].headers["Referer"])
+    }
+
+    @Test
+    fun zhihuRuleFallsBackToQuestionJsonWhenAnswerIsMissingFromWebRender() {
+        val siteRule = TestFixtures.builtInRule("zhihu")
+        val pageUri = URI(
+            "https://www.zhihu.com/question/2030332404074858123/answer/2067664804081410887",
+        )
+        val requests = mutableListOf<PreviewFetchRequest>()
+        val client = PreviewResourceClient { request ->
+            requests += request
+            when (request.uri.query.substringAfter("content_type=")) {
+                "answer" -> PreviewResource(request.uri, "text/plain", "no data!".toByteArray())
+                "question" -> PreviewResource(
+                    request.uri,
+                    "application/json",
+                    """
+                        {
+                          "title": "Multi-Agent 是否真的必要，Single-Agent 做好后能否覆盖绝大多数场景？",
+                          "excerpt": "探讨 Multi-Agent 的真实价值边界。"
+                        }
+                    """.trimIndent().toByteArray(),
+                )
+                else -> error("unexpected preview request: ${request.uri}")
+            }
+        }
+
+        val preview = SharePreviewLoader(client, ThumbnailProcessor { null }).load(
+            pageUri.toASCIIString(),
+            "知乎",
+            siteRule.sharePreview!!,
+            siteRule.redirectPolicy,
+        )
+
+        assertEquals(
+            "【知乎】Multi-Agent 是否真的必要，Single-Agent 做好后能否覆盖绝大多数场景？",
+            preview.title,
+        )
+        assertEquals("探讨 Multi-Agent 的真实价值边界。", preview.description)
+        assertEquals(2, requests.size)
+        assertEquals(
+            URI(
+                "https://web-render.zhihu.com/web_content_detail" +
+                    "?content_id=2067664804081410887&content_type=answer",
+            ),
+            requests[0].uri,
+        )
+        assertEquals(
+            URI(
+                "https://web-render.zhihu.com/web_content_detail" +
+                    "?content_id=2030332404074858123&content_type=question",
+            ),
+            requests[1].uri,
+        )
+        assertEquals("application/json, text/plain, */*", requests[1].headers["Accept"])
+        assertEquals("https://www.zhihu.com/", requests[1].headers["Referer"])
     }
 
     @Test
