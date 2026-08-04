@@ -1,19 +1,17 @@
 package app.stoptrackingme.update
 
-import android.content.ClipData
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.core.content.FileProvider
 import app.stoptrackingme.BuildConfig
 import java.io.File
 
 internal object AppUpdateInstaller {
-    private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
-
     fun validateArchive(context: Context, update: DownloadedAppUpdate) {
         val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.packageManager.getPackageArchiveInfo(
@@ -56,17 +54,46 @@ internal object AppUpdateInstaller {
         Uri.parse("package:${context.packageName}"),
     )
 
-    fun createInstallIntent(context: Context, file: File): Intent {
+    fun install(context: Context, file: File) {
         if (!file.isFile) throw AppUpdateException("已下载的更新文件不存在")
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.update.fileprovider",
-            file,
-        )
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, APK_MIME_TYPE)
-            clipData = ClipData.newRawUri("StopTrackingMe update", uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+        val packageInstaller = context.packageManager.packageInstaller
+        val sessionParams = PackageInstaller.SessionParams(
+            PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+        ).apply {
+            setAppPackageName(context.packageName)
+            setSize(file.length())
+        }
+        val sessionId = packageInstaller.createSession(sessionParams)
+        try {
+            packageInstaller.openSession(sessionId).use { session ->
+                file.inputStream().use { input ->
+                    session.openWrite("base.apk", 0, file.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
+                }
+                session.commit(createStatusIntentSender(context, sessionId))
+            }
+        } catch (error: Exception) {
+            runCatching { packageInstaller.abandonSession(sessionId) }
+            throw AppUpdateException("无法提交系统安装会话", error)
         }
     }
+
+    private fun createStatusIntentSender(context: Context, sessionId: Int) =
+        PendingIntent.getBroadcast(
+            context,
+            sessionId,
+            Intent(context, AppUpdateInstallReceiver::class.java)
+                .setAction(AppUpdateInstallReceiver.ACTION_INSTALL_STATUS),
+            PendingIntent.FLAG_UPDATE_CURRENT or mutablePendingIntentFlag(),
+        ).intentSender
+
+    private fun mutablePendingIntentFlag(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            PendingIntent.FLAG_MUTABLE
+        } else {
+            0
+        }
 }

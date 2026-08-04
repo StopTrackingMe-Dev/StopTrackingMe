@@ -852,12 +852,12 @@ class MainActivity : ComponentActivity() {
 
     private fun launchSystemInstaller(update: DownloadedAppUpdate) {
         runCatching {
-            startActivity(AppUpdateInstaller.createInstallIntent(this, update.file))
+            AppUpdateInstaller.install(this, update.file)
         }.onSuccess {
-            operationMessage = "已交给系统安装器，请确认安装更新"
+            operationMessage = "已提交系统安装会话，请确认安装更新"
         }.onFailure { error ->
             updateStatus = AppUpdateStatus.Ready(update)
-            operationMessage = "无法打开系统安装器：${displayError(error)}"
+            operationMessage = "无法提交系统安装：${displayError(error)}"
         }
     }
 
