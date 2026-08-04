@@ -2,6 +2,7 @@
 .gradle/
 .kotlin/
 build/
+app/release/
 
 # Local Android SDK and IDE state
 local.properties
