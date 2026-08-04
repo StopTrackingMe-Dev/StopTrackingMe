@@ -412,9 +412,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIncomingIntentWhenAllowed(intent)
-        if (AppUpdatePreferences.shouldAutomaticallyCheck(this)) {
-            checkForUpdates(interactive = false)
-        }
+        checkForUpdates(interactive = false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -756,7 +754,6 @@ class MainActivity : ComponentActivity() {
             }
             outcome.fold(
                 onSuccess = { (release, available) ->
-                    AppUpdatePreferences.recordSuccessfulCheck(this@MainActivity)
                     if (available) {
                         updateStatus = AppUpdateStatus.Available(release)
                         if (interactive ||
