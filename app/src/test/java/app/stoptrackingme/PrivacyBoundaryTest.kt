@@ -67,6 +67,25 @@ class PrivacyBoundaryTest {
         assertTrue(text.contains("installationCode"))
     }
 
+    @Test
+    fun qrImageContentIsNeverLoggedOrWrittenToPreferences() {
+        val qrDirectory = File(mainSourceDirectory(), "app/stoptrackingme/qr")
+        val activity = File(mainSourceDirectory(), "app/stoptrackingme/QrImageActivity.kt")
+        val text = buildString {
+            qrDirectory.walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .forEach { appendLine(it.readText()) }
+            append(activity.readText())
+        }
+
+        assertFalse(text.contains("android.util.Log"))
+        assertFalse(text.contains("getSharedPreferences"))
+        assertFalse(
+            Regex("""putString\s*\([^)]*(rawValue|cleanedUrl|sourceText)""")
+                .containsMatchIn(text),
+        )
+    }
+
     private fun mainSourceDirectory(): File {
         val candidates = listOf(
             File("src/main/java"),

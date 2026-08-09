@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -61,6 +62,7 @@ import app.stoptrackingme.link.UrlRuleMatcher
 import app.stoptrackingme.link.UrlRuleResolution
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
+import app.stoptrackingme.qr.AndroidQrImageOutputStorage
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import app.stoptrackingme.update.AppUpdateCard
@@ -108,6 +110,11 @@ class MainActivity : ComponentActivity() {
             if (uri != null) importLocalRule(uri)
         }
 
+    private val pickQrImage =
+        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            if (uri != null) openQrImage(uri)
+        }
+
     private val requestBrowserRole =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             operationMessage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -138,6 +145,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = RuleRepository.get(this)
+        AndroidQrImageOutputStorage(this).cleanupExpired()
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
@@ -177,6 +185,17 @@ class MainActivity : ComponentActivity() {
                             ClipboardEntryCard(
                                 enabled = !busy,
                                 onReadClipboard = ::readClipboard,
+                            )
+
+                            QrImageEntryCard(
+                                enabled = !busy,
+                                onPickImage = {
+                                    pickQrImage.launch(
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                        ),
+                                    )
+                                },
                             )
                         }
 
@@ -532,6 +551,20 @@ class MainActivity : ComponentActivity() {
             ""
         }
         resolveLinkInput(value, SOURCE_CLIPBOARD, reportMissing)
+    }
+
+    private fun openQrImage(uri: Uri) {
+        runCatching {
+            startActivity(
+                QrImageActivity.createIntent(
+                    context = this,
+                    uri = uri,
+                    mimeType = contentResolver.getType(uri),
+                ),
+            )
+        }.onFailure { error ->
+            operationMessage = "无法打开二维码图片：${displayError(error)}"
+        }
     }
 
     private fun handleIncomingIntent(incoming: Intent) {
@@ -949,6 +982,29 @@ private fun ClipboardEntryCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("读取并净化剪贴板链接")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun QrImageEntryCard(
+    enabled: Boolean,
+    onPickImage: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("净化二维码图片", style = MaterialTheme.typography.titleMedium)
+            Text("选择 PNG 或 JPEG 图片，离线识别二维码并在原位置替换为净化后的链接。原图不会被覆盖。")
+            Button(
+                onClick = onPickImage,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("选择二维码图片")
             }
         }
     }

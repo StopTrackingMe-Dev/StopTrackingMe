@@ -12,6 +12,9 @@ gson = "2.11.0"
 re2j = "1.8"
 wechatOpenSdk = "6.8.40"
 jsoup = "1.22.2"
+exifInterface = "1.4.2"
+mlkitBarcodeScanning = "17.3.0"
+zxing = "3.5.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +35,9 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 re2j = { group = "com.google.re2j", name = "re2j", version.ref = "re2j" }
 wechat-open-sdk = { group = "com.tencent.mm.opensdk", name = "wechat-sdk-android", version.ref = "wechatOpenSdk" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifInterface" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcodeScanning" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

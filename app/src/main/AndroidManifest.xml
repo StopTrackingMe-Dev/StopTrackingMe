@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <queries>
         <package android:name="com.tencent.mm" />
@@ -74,6 +77,19 @@
             android:theme="@style/Theme.StopTracking" />
 
         <activity
+            android:name=".QrImageActivity"
+            android:exported="true"
+            android:theme="@style/Theme.StopTracking">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".QQShareActivity"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:excludeFromRecents="true"
@@ -130,6 +146,16 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_file_paths" />
+        </provider>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.qr.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qr_file_paths" />
         </provider>
 
         <receiver
