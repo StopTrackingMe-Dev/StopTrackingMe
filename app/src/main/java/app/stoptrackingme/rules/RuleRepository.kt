@@ -1,6 +1,7 @@
 package app.stoptrackingme.rules
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.AtomicFile
@@ -84,28 +85,34 @@ class RuleRepository private constructor(
 
     fun currentCatalog(): RuleCatalog = catalog
 
-    fun reload(): RuleCatalog = synchronized(lock) {
-        val installed = ArrayList<InstalledRule>()
-        val errors = ArrayList<String>()
+    fun reload(): RuleCatalog {
+        val reloaded = synchronized(lock) {
+            val installed = ArrayList<InstalledRule>()
+            val errors = ArrayList<String>()
 
-        loadBuiltInRules(installed, errors)
-        loadLocalRules(installed, errors)
-        val subscriptions = preferences.getStringSet(KEY_SUBSCRIPTIONS, emptySet())
-            .orEmpty()
-            .toList()
-            .sorted()
-        loadRemoteRules(subscriptions, installed, errors)
+            loadBuiltInRules(installed, errors)
+            loadLocalRules(installed, errors)
+            val subscriptions = preferences.getStringSet(KEY_SUBSCRIPTIONS, emptySet())
+                .orEmpty()
+                .toList()
+                .sorted()
+            loadRemoteRules(subscriptions, installed, errors)
 
-        catalog = RuleCatalog(
-            installedRules = installed.sortedWith(
-                compareBy<InstalledRule> { it.rule.target.packageName }
-                    .thenBy { it.rule.displayName }
-                    .thenBy { it.key },
-            ),
-            loadErrors = errors,
-            subscriptions = subscriptions,
+            catalog = RuleCatalog(
+                installedRules = installed.sortedWith(
+                    compareBy<InstalledRule> { it.rule.target.packageName }
+                        .thenBy { it.rule.displayName }
+                        .thenBy { it.key },
+                ),
+                loadErrors = errors,
+                subscriptions = subscriptions,
+            )
+            catalog
+        }
+        appContext.sendBroadcast(
+            Intent(ACTION_CATALOG_CHANGED).setPackage(appContext.packageName),
         )
-        catalog
+        return reloaded
     }
 
     fun resolveActiveRule(packageName: String): ActiveRuleResolution {
@@ -318,6 +325,7 @@ class RuleRepository private constructor(
         error.message?.take(160)?.replace(Regex("""https?://\S+"""), "[URL]") ?: "未知错误"
 
     companion object {
+        const val ACTION_CATALOG_CHANGED = "app.stoptrackingme.RULE_CATALOG_CHANGED"
         private const val PREFERENCES = "rule_repository"
         private const val KEY_SUBSCRIPTIONS = "subscriptions"
         private const val KEY_ACTIVE_PREFIX = "active."

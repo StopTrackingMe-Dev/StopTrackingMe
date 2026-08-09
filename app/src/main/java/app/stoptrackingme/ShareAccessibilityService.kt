@@ -1,9 +1,12 @@
 package app.stoptrackingme
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -17,7 +20,10 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import app.stoptrackingme.automation.AccessibilityEventPolicy
+import app.stoptrackingme.automation.AccessibilityEventScope
 import app.stoptrackingme.automation.AccessibilityTree
 import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.automation.AutomationSafety
@@ -51,6 +57,10 @@ class ShareAccessibilityService : AccessibilityService() {
     private lateinit var rules: RuleRepository
     private val fallbackPanelLatch = HashSet<String>()
     private val scheduledScanSessions = HashSet<String>()
+    private var contentDiscoveryArmed = false
+    private var contentDiscoveryTimeout: Runnable? = null
+    private var appliedEventScope: AccessibilityEventScope? = null
+    private var serviceConfigurationReceiverRegistered = false
     private var awaitingPanelSeenSessionId: String? = null
     private var launchBridgeView: View? = null
     private var clipboardFocusBridgeView: View? = null
@@ -71,9 +81,20 @@ class ShareAccessibilityService : AccessibilityService() {
     private var resultPageLaunchTimeout: Runnable? = null
     private val overlayEventListener = ShareOverlayEventListener(::onOverlayEvent)
     private val overlayActionListener = ShareOverlayActionListener(::onOverlayAction)
+    private val serviceConfigurationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                RuleRepository.ACTION_CATALOG_CHANGED,
+                ServiceStatus.ACTION_CHANGED,
+                -> applyAccessibilityEventScope()
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        clearContentDiscoveryWindow()
+        appliedEventScope = null
         rules = RuleRepository.get(this)
         rules.reload()
         awaitingPanelSeenSessionId = null
@@ -84,6 +105,7 @@ class ShareAccessibilityService : AccessibilityService() {
         if (::overlayController.isInitialized) overlayController.remove()
         overlayController = ShareOverlayController(this, overlayActionListener)
         ShareOverlayCoordinator.attach(overlayEventListener)
+        registerServiceConfigurationReceiver()
         val previous = AutomationRuntime.current()
         if (previous.stage == AutomationStage.SHOW_RESULT && previous.sessionId != null) {
             val restored =
@@ -100,6 +122,7 @@ class ShareAccessibilityService : AccessibilityService() {
             ShareSessionStore.clear(previous.sessionId)
             ServiceStatus.update(this, "服务已连接，等待受支持应用中的分享操作", AutomationStage.IDLE)
         }
+        applyAccessibilityEventScope()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -185,6 +208,8 @@ class ShareAccessibilityService : AccessibilityService() {
             awaitingPanelSeenSessionId = null
             overlayController.remove()
             ShareSessionStore.clear()
+            clearContentDiscoveryWindow()
+            applyAccessibilityEventScope()
             ServiceStatus.update(
                 this,
                 if (isDebugBuild) {
@@ -209,6 +234,10 @@ class ShareAccessibilityService : AccessibilityService() {
             ActiveRuleResolution.NoRule -> return
         }
         if (AutomationSafety.isSensitivePackage(eventPackage)) return
+
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            armContentDiscoveryWindow()
+        }
 
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
             AccessibilityTree.matchesNodeOrAncestors(
@@ -252,6 +281,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        clearContentDiscoveryWindow()
         awaitingPanelSeenSessionId = null
         cancelSystemShareLaunch()
         cancelResultPageLaunch()
@@ -261,10 +291,12 @@ class ShareAccessibilityService : AccessibilityService() {
         if (::overlayController.isInitialized) overlayController.remove(sessionId)
         AutomationRuntime.reset()
         ShareSessionStore.clear(sessionId)
+        applyAccessibilityEventScope()
         ServiceStatus.update(this, "服务已中断，本次自动化已终止", AutomationStage.IDLE)
     }
 
     override fun onDestroy() {
+        clearContentDiscoveryWindow()
         handler.removeCallbacksAndMessages(null)
         awaitingPanelSeenSessionId = null
         cancelSystemShareLaunch()
@@ -272,6 +304,7 @@ class ShareAccessibilityService : AccessibilityService() {
         removeClipboardFocusBridge()
         cancelOverlayWorkers()
         ShareOverlayCoordinator.detach(overlayEventListener)
+        unregisterServiceConfigurationReceiver()
         if (::overlayController.isInitialized) overlayController.remove()
         super.onDestroy()
     }
@@ -279,6 +312,78 @@ class ShareAccessibilityService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (::overlayController.isInitialized) overlayController.onConfigurationChanged(newConfig)
+    }
+
+    private fun registerServiceConfigurationReceiver() {
+        if (serviceConfigurationReceiverRegistered) return
+        ContextCompat.registerReceiver(
+            this,
+            serviceConfigurationReceiver,
+            IntentFilter().apply {
+                addAction(RuleRepository.ACTION_CATALOG_CHANGED)
+                addAction(ServiceStatus.ACTION_CHANGED)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        serviceConfigurationReceiverRegistered = true
+    }
+
+    private fun unregisterServiceConfigurationReceiver() {
+        if (!serviceConfigurationReceiverRegistered) return
+        serviceConfigurationReceiverRegistered = false
+        unregisterReceiver(serviceConfigurationReceiver)
+    }
+
+    private fun armContentDiscoveryWindow() {
+        if (AutomationRuntime.current().stage != AutomationStage.IDLE) return
+        contentDiscoveryTimeout?.let(handler::removeCallbacks)
+        contentDiscoveryArmed = true
+        val timeout = Runnable {
+            contentDiscoveryTimeout = null
+            if (contentDiscoveryArmed) {
+                contentDiscoveryArmed = false
+                applyAccessibilityEventScope()
+            }
+        }
+        contentDiscoveryTimeout = timeout
+        applyAccessibilityEventScope()
+        handler.postDelayed(timeout, CONTENT_DISCOVERY_WINDOW_MS)
+    }
+
+    private fun clearContentDiscoveryWindow() {
+        contentDiscoveryTimeout?.let(handler::removeCallbacks)
+        contentDiscoveryTimeout = null
+        contentDiscoveryArmed = false
+    }
+
+    private fun applyAccessibilityEventScope() {
+        if (!::rules.isInitialized) return
+        val snapshot = AutomationRuntime.current()
+        val overlayResultActive = ::overlayController.isInitialized &&
+            overlayController.activeSessionId == snapshot.sessionId &&
+            snapshot.sessionId != null
+        val targetPackages = rules.currentCatalog().installedRules.map {
+            it.rule.target.packageName
+        }
+        val scope = AccessibilityEventPolicy.scopeFor(
+            stage = snapshot.stage,
+            rulePackageNames = targetPackages,
+            sourcePackage = snapshot.sourcePackage,
+            contentDiscoveryArmed = contentDiscoveryArmed,
+            overlayResultActive = overlayResultActive,
+        )
+        if (scope == appliedEventScope) return
+        val info = serviceInfo ?: return
+        runCatching {
+            info.eventTypes = scope.eventTypes
+            info.packageNames = scope.packageNames?.toTypedArray()
+            info.notificationTimeout = scope.notificationTimeoutMillis
+            setServiceInfo(info)
+        }.onSuccess {
+            appliedEventScope = scope
+        }.onFailure { error ->
+            if (isDebugBuild) Log.w(TAG, "Unable to update accessibility event scope", error)
+        }
     }
 
     private fun beginTask(installed: InstalledRule, fallback: Boolean = false) {
@@ -329,6 +434,8 @@ class ShareAccessibilityService : AccessibilityService() {
         ) {
             overlayController.showProgress(sessionId)
         }
+        clearContentDiscoveryWindow()
+        applyAccessibilityEventScope()
         ServiceStatus.update(
             this,
             if (awaitCopyConfirmation) {
@@ -505,6 +612,8 @@ class ShareAccessibilityService : AccessibilityService() {
             return
         }
         if (!AutomationRuntime.markClickAttempt(sessionId)) return
+        clearContentDiscoveryWindow()
+        applyAccessibilityEventScope()
         overlayController.updateStatus(sessionId, "已找到链接，正在复制…")
         ServiceStatus.update(this, "正在执行本次任务唯一一次复制点击", AutomationStage.CLICK_ONCE)
         val clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -899,6 +1008,7 @@ class ShareAccessibilityService : AccessibilityService() {
             overlayController.remove(sessionId)
             return false
         }
+        applyAccessibilityEventScope()
         ServiceStatus.update(this, "处理完成，已显示净化结果悬浮窗", AutomationStage.SHOW_RESULT)
         if (needsPreview) loadOverlayPreview(sessionId, installed)
         return true
@@ -1295,6 +1405,7 @@ class ShareAccessibilityService : AccessibilityService() {
         cancelResultPageLaunch(sessionId)
         cancelOverlayWorkers()
         overlayController.remove(sessionId)
+        applyAccessibilityEventScope()
         ServiceStatus.update(this, "已打开完整净化结果页", AutomationStage.SHOW_RESULT)
         return true
     }
@@ -1334,6 +1445,8 @@ class ShareAccessibilityService : AccessibilityService() {
         scheduledScanSessions.remove(sessionId)
         AutomationRuntime.reset(sessionId)
         ShareSessionStore.clear(sessionId)
+        clearContentDiscoveryWindow()
+        applyAccessibilityEventScope()
         ServiceStatus.update(this, message, AutomationStage.IDLE)
     }
 
@@ -1358,6 +1471,8 @@ class ShareAccessibilityService : AccessibilityService() {
         overlayController.remove(sessionId)
         AutomationRuntime.reset(sessionId)
         ShareSessionStore.clear(sessionId)
+        clearContentDiscoveryWindow()
+        applyAccessibilityEventScope()
         ServiceStatus.update(this, message, AutomationStage.IDLE)
     }
 
@@ -1374,6 +1489,7 @@ class ShareAccessibilityService : AccessibilityService() {
         private const val TAG = "StopTrackingAutomation"
         private const val INITIAL_SCAN_DELAY_MS = 120L
         private const val COPY_SCAN_RETRY_DELAY_MS = 140L
+        private const val CONTENT_DISCOVERY_WINDOW_MS = 1_500L
         private const val LAUNCH_BRIDGE_SIZE_PX = 1
         private const val LAUNCH_BRIDGE_ALPHA = 0.01f
         private const val LAUNCH_BRIDGE_SETTLE_MS = 100L
