@@ -100,16 +100,16 @@ class QrGeometryTest {
     }
 
     @Test
-    fun includesFourModuleQuietZoneInDensityCheck() {
+    fun usesEntireDetectedSymbolForDensityCheck() {
         val valid = QrGeometry.validate(
             listOf(
                 QrPoint(0f, 0f),
-                QrPoint(111f, 0f),
-                QrPoint(111f, 111f),
-                QrPoint(0f, 111f),
+                QrPoint(87f, 0f),
+                QrPoint(87f, 87f),
+                QrPoint(0f, 87f),
             ),
-            111,
-            111,
+            87,
+            87,
         ) as QrGeometryResult.Valid
 
         assertEquals(3f, QrGeometry.modulePixelSize(valid.quadrilateral, 29), 0.001f)

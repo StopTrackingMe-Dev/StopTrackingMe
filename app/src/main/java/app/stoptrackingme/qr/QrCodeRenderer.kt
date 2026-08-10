@@ -66,17 +66,30 @@ class PerspectiveQrCodeComposer(
             )
         }
 
-        val totalModules = encoded.width + QrGeometry.QUIET_ZONE_MODULES * 2
+        val quiet = QrGeometry.QUIET_ZONE_MODULES.toFloat()
+        val encodedModules = encoded.width.toFloat()
+        val totalModules = encodedModules + quiet * 2f
         val source = floatArrayOf(
-            0f, 0f,
-            totalModules.toFloat(), 0f,
-            totalModules.toFloat(), totalModules.toFloat(),
-            0f, totalModules.toFloat(),
+            quiet, quiet,
+            quiet + encodedModules, quiet,
+            quiet + encodedModules, quiet + encodedModules,
+            quiet, quiet + encodedModules,
         )
         val destination = geometry.corners.flatMap { listOf(it.x, it.y) }.toFloatArray()
         val transform = Matrix()
         if (!transform.setPolyToPoly(source, 0, destination, 0, 4)) {
             return QrComposeResult.Failure("无法建立二维码透视映射")
+        }
+
+        val quietZoneCorners = floatArrayOf(
+            0f, 0f,
+            totalModules, 0f,
+            totalModules, totalModules,
+            0f, totalModules,
+        )
+        transform.mapPoints(quietZoneCorners)
+        if (quietZoneCorners.any { !it.isFinite() }) {
+            return QrComposeResult.Failure("无法建立二维码静区")
         }
 
         val canvas = Canvas(bitmap)
@@ -87,15 +100,16 @@ class PerspectiveQrCodeComposer(
             isDither = false
         }
         val targetPath = Path().apply {
-            moveTo(geometry.corners[0].x, geometry.corners[0].y)
-            geometry.corners.drop(1).forEach { lineTo(it.x, it.y) }
+            moveTo(quietZoneCorners[0], quietZoneCorners[1])
+            lineTo(quietZoneCorners[2], quietZoneCorners[3])
+            lineTo(quietZoneCorners[4], quietZoneCorners[5])
+            lineTo(quietZoneCorners[6], quietZoneCorners[7])
             close()
         }
         canvas.drawPath(targetPath, whitePaint)
 
         val blackModules = Path().apply { fillType = Path.FillType.WINDING }
         val mapped = FloatArray(8)
-        val quiet = QrGeometry.QUIET_ZONE_MODULES.toFloat()
         for (y in 0 until encoded.height) {
             for (x in 0 until encoded.width) {
                 if (!encoded[x, y]) continue
@@ -125,7 +139,32 @@ class PerspectiveQrCodeComposer(
         }
         canvas.drawPath(blackModules, blackPaint)
         return QrComposeResult.Success(
-            verificationBounds = geometry.bounds,
+            verificationBounds = QrBounds(
+                left = minOf(
+                    quietZoneCorners[0],
+                    quietZoneCorners[2],
+                    quietZoneCorners[4],
+                    quietZoneCorners[6],
+                ),
+                top = minOf(
+                    quietZoneCorners[1],
+                    quietZoneCorners[3],
+                    quietZoneCorners[5],
+                    quietZoneCorners[7],
+                ),
+                right = maxOf(
+                    quietZoneCorners[0],
+                    quietZoneCorners[2],
+                    quietZoneCorners[4],
+                    quietZoneCorners[6],
+                ),
+                bottom = maxOf(
+                    quietZoneCorners[1],
+                    quietZoneCorners[3],
+                    quietZoneCorners[5],
+                    quietZoneCorners[7],
+                ),
+            ),
             encodedModuleCount = encoded.width,
             modulePixelSize = modulePixels,
         )

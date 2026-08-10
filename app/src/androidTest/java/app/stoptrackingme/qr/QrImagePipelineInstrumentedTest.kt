@@ -140,6 +140,39 @@ class QrImagePipelineInstrumentedTest {
         )
     }
 
+    @Test
+    fun replacementFillsDetectedSymbolAndCoversOldEdgeArtifacts() {
+        val source = Bitmap.createBitmap(800, 800, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.rgb(235, 235, 235))
+            for (y in 174 until 626) {
+                for (x in 174 until 626) {
+                    setPixel(x, y, Color.BLACK)
+                }
+            }
+        }
+
+        val outcome = PerspectiveQrCodeComposer().compose(
+            bitmap = source,
+            targetCorners = listOf(
+                QrPoint(180f, 180f),
+                QrPoint(620f, 180f),
+                QrPoint(620f, 620f),
+                QrPoint(180f, 620f),
+            ),
+            cleanedUrl = CLEANED_URL,
+        ) as QrComposeResult.Success
+
+        assertEquals(440f / outcome.encodedModuleCount, outcome.modulePixelSize, 0.001f)
+        assertEquals(Color.BLACK, source.getPixel(185, 185))
+        assertEquals(Color.WHITE, source.getPixel(177, 400))
+        assertEquals(Color.rgb(235, 235, 235), source.getPixel(100, 400))
+        assertTrue(outcome.verificationBounds.left < 180f)
+        assertTrue(outcome.verificationBounds.top < 180f)
+        assertTrue(outcome.verificationBounds.right > 620f)
+        assertTrue(outcome.verificationBounds.bottom > 620f)
+        source.recycle()
+    }
+
     private suspend fun verifyManualTarget(mimeType: String, corners: List<QrPoint>) {
         val source = Bitmap.createBitmap(800, 800, Bitmap.Config.ARGB_8888).apply {
             eraseColor(Color.rgb(235, 235, 235))

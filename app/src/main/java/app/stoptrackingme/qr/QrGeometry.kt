@@ -97,8 +97,7 @@ object QrGeometry {
         encodedModuleCount: Int,
     ): Float {
         require(encodedModuleCount > 0)
-        val totalModules = encodedModuleCount + QUIET_ZONE_MODULES * 2
-        return quadrilateral.minimumEdgeLength / totalModules
+        return quadrilateral.minimumEdgeLength / encodedModuleCount
     }
 
     private fun rotateToUpperLeft(points: List<QrPoint>): List<QrPoint> {
