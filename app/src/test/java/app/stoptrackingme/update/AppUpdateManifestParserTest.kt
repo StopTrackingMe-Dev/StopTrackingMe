@@ -48,6 +48,157 @@ class AppUpdateManifestParserTest {
     }
 
     @Test
+    fun selectsFirstCompatibleAbiAsset() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tag_name": "v1.0.0",
+              "assets": [
+                {
+                  "name": "app-universal-release.apk",
+                  "size": 30000000,
+                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-universal-release.apk"
+                },
+                {
+                  "name": "app-armeabi-v7a-release.apk",
+                  "size": 14000000,
+                  "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-armeabi-v7a-release.apk"
+                },
+                {
+                  "name": "app-arm64-v8a-release.apk",
+                  "size": 16000000,
+                  "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-arm64-v8a-release.apk"
+                }
+              ]
+            }
+            """.trimIndent(),
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+        )
+
+        assertEquals("app-arm64-v8a-release.apk", release.asset.fileName)
+        assertEquals("arm64-v8a", release.asset.targetAbi)
+        assertEquals(16000000L, release.asset.sizeBytes)
+    }
+
+    @Test
+    fun distinguishesX86_64FromX86AssetNames() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tag_name": "v1.0.0",
+              "assets": [
+                {
+                  "name": "app-x86-release.apk",
+                  "size": 16000000,
+                  "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-x86-release.apk"
+                },
+                {
+                  "name": "app-x86_64-release.apk",
+                  "size": 17000000,
+                  "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-x86_64-release.apk"
+                }
+              ]
+            }
+            """.trimIndent(),
+            supportedAbis = listOf("x86_64", "x86"),
+        )
+
+        assertEquals("app-x86_64-release.apk", release.asset.fileName)
+        assertEquals("x86_64", release.asset.targetAbi)
+    }
+
+    @Test
+    fun usesNextCompatibleAbiBeforeUniversalFallback() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tag_name": "v1.0.0",
+              "assets": [
+                {
+                  "name": "app-universal-release.apk",
+                  "size": 30000000,
+                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-universal-release.apk"
+                },
+                {
+                  "name": "app-armeabi-v7a-release.apk",
+                  "size": 14000000,
+                  "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-armeabi-v7a-release.apk"
+                }
+              ]
+            }
+            """.trimIndent(),
+            supportedAbis = listOf("arm64-v8a", "armeabi-v7a"),
+        )
+
+        assertEquals("app-armeabi-v7a-release.apk", release.asset.fileName)
+        assertEquals("armeabi-v7a", release.asset.targetAbi)
+    }
+
+    @Test
+    fun fallsBackToUniversalApkWhenNoAbiAssetMatches() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tag_name": "v1.0.0",
+              "assets": [
+                {
+                  "name": "app-arm64-v8a-release.apk",
+                  "size": 16000000,
+                  "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-arm64-v8a-release.apk"
+                },
+                {
+                  "name": "app-universal-release.apk",
+                  "size": 30000000,
+                  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-universal-release.apk"
+                }
+              ]
+            }
+            """.trimIndent(),
+            supportedAbis = listOf("x86_64", "x86"),
+        )
+
+        assertEquals("app-universal-release.apk", release.asset.fileName)
+        assertNull(release.asset.targetAbi)
+    }
+
+    @Test
+    fun rejectsReleaseWithoutCompatibleOrUniversalApk() {
+        assertThrows(AppUpdateException::class.java) {
+            AppUpdateManifestParser.parse(
+                """
+                {
+                  "tag_name": "v1.0.0",
+                  "assets": [
+                    {
+                      "name": "app-arm64-v8a-release.apk",
+                      "size": 16000000,
+                      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                      "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-arm64-v8a-release.apk"
+                    },
+                    {
+                      "name": "app-armeabi-v7a-release.apk",
+                      "size": 14000000,
+                      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                      "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1.0.0/app-armeabi-v7a-release.apk"
+                    }
+                  ]
+                }
+                """.trimIndent(),
+                supportedAbis = listOf("x86_64", "x86"),
+            )
+        }
+    }
+
+    @Test
     fun parsesNormalizedManifestFields() {
         val release = AppUpdateManifestParser.parse(
             """

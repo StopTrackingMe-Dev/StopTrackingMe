@@ -49,6 +49,7 @@ class SemanticVersionTest {
         prerelease = false,
         asset = AppUpdateAsset(
             fileName = "app-release.apk",
+            targetAbi = null,
             githubUrl = "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v1/app-release.apk",
             mirrorUrl = null,
             sizeBytes = 1000,

@@ -1,5 +1,6 @@
 package app.stoptrackingme.update
 
+import android.os.Build
 import app.stoptrackingme.BuildConfig
 import app.stoptrackingme.network.PublicNetworkGuard
 import java.io.ByteArrayOutputStream
@@ -14,6 +15,7 @@ import javax.net.ssl.HttpsURLConnection
 internal class AppUpdateClient(
     manifestUrl: String = BuildConfig.UPDATE_MANIFEST_URL,
     private val defaultMirrorUrl: String = BuildConfig.UPDATE_MIRROR_URL,
+    private val supportedAbis: List<String> = Build.SUPPORTED_ABIS.toList(),
     private val networkGuard: PublicNetworkGuard = PublicNetworkGuard(),
 ) {
     private val manifestUri = validatedManifestUri(manifestUrl)
@@ -45,7 +47,7 @@ internal class AppUpdateClient(
                 }
                 val bytes = readLimited(connection, MAX_MANIFEST_BYTES)
                 val json = bytes.toString(Charsets.UTF_8)
-                return AppUpdateManifestParser.parse(json)
+                return AppUpdateManifestParser.parse(json, supportedAbis)
             } catch (error: AppUpdateException) {
                 throw error
             } catch (error: Exception) {
@@ -217,7 +219,10 @@ internal class AppUpdateClient(
         preferredSource: AppUpdateDownloadSource,
         allowFallback: Boolean,
     ): List<DownloadCandidate> {
-        val mirrorUrl = release.asset.mirrorUrl ?: defaultMirrorUrl.takeIf(String::isNotBlank)
+        val mirrorUrl = release.asset.mirrorUrl
+            ?: defaultMirrorUrl.takeIf {
+                release.asset.targetAbi == null && it.isNotBlank()
+            }
         val mirror = mirrorUrl?.let {
             DownloadCandidate(AppUpdateDownloadSource.MIRROR, validatedDownloadUri(it))
         }

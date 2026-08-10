@@ -4,6 +4,7 @@ import java.io.File
 
 internal data class AppUpdateAsset(
     val fileName: String,
+    val targetAbi: String?,
     val githubUrl: String,
     val mirrorUrl: String?,
     val sizeBytes: Long?,

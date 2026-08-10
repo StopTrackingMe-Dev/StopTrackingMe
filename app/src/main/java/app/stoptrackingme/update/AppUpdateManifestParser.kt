@@ -8,7 +8,10 @@ import java.net.URI
 import java.util.Locale
 
 internal object AppUpdateManifestParser {
-    fun parse(json: String): AppUpdateRelease {
+    fun parse(
+        json: String,
+        supportedAbis: List<String> = emptyList(),
+    ): AppUpdateRelease {
         val root = try {
             JsonParser.parseString(json).asJsonObject
         } catch (error: Exception) {
@@ -34,7 +37,7 @@ internal object AppUpdateManifestParser {
         requireShortValue(releaseName, "发布名称", 200)
         releasePageUrl?.let { requireHttpsUrl(it, "发布页面") }
 
-        val asset = parseAsset(root, mirrorUrl)
+        val asset = parseAsset(root, mirrorUrl, supportedAbis)
         return AppUpdateRelease(
             tagName = tagName,
             versionName = versionName,
@@ -47,24 +50,35 @@ internal object AppUpdateManifestParser {
         )
     }
 
-    private fun parseAsset(root: JsonObject, mirrorUrl: String?): AppUpdateAsset {
-        val githubAsset = root.get("assets")
+    private fun parseAsset(
+        root: JsonObject,
+        rootMirrorUrl: String?,
+        supportedAbis: List<String>,
+    ): AppUpdateAsset {
+        val selectedAsset = root.get("assets")
             ?.takeIf(JsonElement::isJsonArray)
             ?.asJsonArray
-            ?.preferredApk()
+            ?.preferredApk(supportedAbis)
+        val source = selectedAsset?.value ?: root
 
-        val fileName = githubAsset?.optionalString("name")
-            ?: root.optionalString("fileName")
+        val fileName = source.apkFileName()
             ?: "app-release.apk"
-        val githubUrl = githubAsset?.optionalString("browser_download_url")
-            ?: root.optionalString("githubUrl")
+        val githubUrl = source.optionalString("browser_download_url")
+            ?: source.optionalString("githubUrl")
             ?: throw AppUpdateException("更新信息缺少 GitHub APK 下载地址")
-        val sizeBytes = githubAsset?.optionalLong("size")
-            ?: root.optionalLong("sizeBytes")
-        val digest = githubAsset?.optionalString("digest")
-            ?: root.optionalString("sha256")
+        val sizeBytes = source.optionalLong("size")
+            ?: source.optionalLong("sizeBytes")
+        val digest = source.optionalString("digest")
+            ?: source.optionalString("sha256")
             ?: throw AppUpdateException("更新信息缺少 APK SHA-256")
         val sha256 = normalizeSha256(digest)
+        val targetAbi = if (selectedAsset != null) {
+            selectedAsset.targetAbi
+        } else {
+            source.targetAbi(fileName)
+        }
+        val mirrorUrl = source.optionalString("mirrorUrl")
+            ?: rootMirrorUrl.takeIf { selectedAsset == null || targetAbi == null }
 
         if (!fileName.lowercase(Locale.ROOT).endsWith(".apk") ||
             fileName.contains('/') || fileName.contains('\\')
@@ -79,6 +93,7 @@ internal object AppUpdateManifestParser {
 
         return AppUpdateAsset(
             fileName = fileName,
+            targetAbi = targetAbi,
             githubUrl = githubUrl,
             mirrorUrl = mirrorUrl,
             sizeBytes = sizeBytes,
@@ -86,15 +101,68 @@ internal object AppUpdateManifestParser {
         )
     }
 
-    private fun JsonArray.preferredApk(): JsonObject? {
+    private fun JsonArray.preferredApk(supportedAbis: List<String>): SelectedApk? {
         val candidates = mapNotNull { element ->
             element.takeIf(JsonElement::isJsonObject)?.asJsonObject
         }.filter { asset ->
-            asset.optionalString("name")?.lowercase(Locale.ROOT)?.endsWith(".apk") == true
+            asset.apkFileName()?.lowercase(Locale.ROOT)?.endsWith(".apk") == true
+        }.map { asset ->
+            val fileName = requireNotNull(asset.apkFileName())
+            val declaredAbi = asset.optionalString("abi")?.lowercase(Locale.ROOT)
+            SelectedApk(
+                value = asset,
+                targetAbi = when {
+                    declaredAbi == UNIVERSAL_ABI -> null
+                    declaredAbi in APK_ABIS -> declaredAbi
+                    else -> abiFromFileName(fileName)
+                },
+                isUniversal = declaredAbi == UNIVERSAL_ABI ||
+                    (declaredAbi == null && isUniversalFileName(fileName)),
+            )
         }
-        return candidates.firstOrNull {
-            it.optionalString("name").equals("app-release.apk", ignoreCase = true)
-        } ?: candidates.firstOrNull()
+
+        supportedAbis.asSequence()
+            .map { it.trim().lowercase(Locale.ROOT) }
+            .filter(String::isNotEmpty)
+            .distinct()
+            .forEach { supportedAbi ->
+                candidates.firstOrNull { it.targetAbi == supportedAbi }?.let { return it }
+            }
+
+        candidates.firstOrNull(SelectedApk::isUniversal)?.let { return it }
+        if (candidates.size == 1 && candidates.single().targetAbi == null) {
+            return candidates.single()
+        }
+        if (candidates.isEmpty()) return null
+
+        val deviceAbis = supportedAbis.joinToString().ifBlank { "未知" }
+        throw AppUpdateException("更新信息没有适用于当前设备 ABI（$deviceAbis）的 APK")
+    }
+
+    private fun JsonObject.apkFileName(): String? =
+        optionalString("name") ?: optionalString("fileName")
+
+    private fun JsonObject.targetAbi(fileName: String): String? {
+        val declaredAbi = optionalString("abi")?.lowercase(Locale.ROOT)
+        return when {
+            declaredAbi == UNIVERSAL_ABI -> null
+            declaredAbi in APK_ABIS -> declaredAbi
+            else -> abiFromFileName(fileName)
+        }
+    }
+
+    private fun abiFromFileName(fileName: String): String? = APK_ABIS
+        .sortedByDescending(String::length)
+        .firstOrNull { abi ->
+            Regex(
+                "(^|[-_.])${Regex.escape(abi)}($|[-_.])",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(fileName)
+        }
+
+    private fun isUniversalFileName(fileName: String): Boolean {
+        if (fileName.equals("app-release.apk", ignoreCase = true)) return true
+        return UNIVERSAL_FILE_PATTERN.containsMatchIn(fileName)
     }
 
     private fun normalizeSha256(value: String): String {
@@ -141,6 +209,18 @@ internal object AppUpdateManifestParser {
         ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }
         ?.asBoolean
 
+    private data class SelectedApk(
+        val value: JsonObject,
+        val targetAbi: String?,
+        val isUniversal: Boolean,
+    )
+
     private const val MIN_APK_BYTES = 1_024L
     private const val MAX_APK_BYTES = 200L * 1024 * 1024
+    private const val UNIVERSAL_ABI = "universal"
+    private val APK_ABIS = listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+    private val UNIVERSAL_FILE_PATTERN = Regex(
+        "(^|[-_.])universal($|[-_.])",
+        RegexOption.IGNORE_CASE,
+    )
 }
