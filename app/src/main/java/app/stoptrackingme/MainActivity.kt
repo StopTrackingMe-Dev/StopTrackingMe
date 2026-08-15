@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
     private lateinit var cacheManager: AppCacheManager
     private val updateClient = AppUpdateClient()
+    private val backgroundRunGuide = BackgroundRunGuides.current()
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var batteryOptimizationDisabled by mutableStateOf(true)
@@ -195,11 +196,13 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
 
-                            if (!batteryOptimizationDisabled) {
-                                BatteryOptimizationWarningCard(
-                                    onOpenSettings = ::openBatteryOptimizationSettings,
-                                )
-                            }
+                            BackgroundRunSettingsCard(
+                                guide = backgroundRunGuide,
+                                batteryOptimizationDisabled = batteryOptimizationDisabled,
+                                onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
+                                onOpenAppDetails = ::openBackgroundAppDetails,
+                                onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
+                            )
 
                             ClipboardEntryCard(
                                 enabled = !busy,
@@ -612,17 +615,61 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openBatteryOptimizationSettings() {
-        runCatching {
-            startActivity(batteryOptimizationSettingsIntent())
-        }.recoverCatching {
-            startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", packageName, null),
-                ),
+        operationMessage = when (
+            BackgroundRunSettingsNavigator.openBatteryOptimizationOrFallback(this)
+        ) {
+            BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
+                "请在电池优化列表中找到本应用并设为“不优化”；厂商自启动仍需单独确认"
+            BackgroundSettingsDestination.APP_DETAILS ->
+                "未能打开电池优化列表，已打开本应用详情；请进入“电池”并选择“无限制”"
+            BackgroundSettingsDestination.GENERAL_SETTINGS ->
+                "未能打开应用专属页面，已打开系统设置；请搜索“电池优化”"
+            BackgroundSettingsDestination.NONE ->
+                "无法打开系统电池设置，请按下方说明手动设置"
+            BackgroundSettingsDestination.OEM_PAGE ->
+                "请按下方说明完成厂商后台设置"
+        }
+    }
+
+    private fun openManufacturerBackgroundSettings() {
+        operationMessage = when (
+            BackgroundRunSettingsNavigator.openManufacturerSettingsOrFallback(
+                context = this,
+                guide = backgroundRunGuide,
             )
-        }.onFailure { error ->
-            operationMessage = "无法打开电池优化设置：${displayError(error)}"
+        ) {
+            BackgroundSettingsDestination.OEM_PAGE ->
+                "已打开${backgroundRunGuide.displayName}相关页面；请找到本应用并按下方步骤设置"
+            BackgroundSettingsDestination.APP_DETAILS -> if (
+                backgroundRunGuide.hasDedicatedSettingsTargets
+            ) {
+                "当前系统没有兼容的厂商入口，已回退到本应用详情；请进入“电池”并按下方步骤设置"
+            } else {
+                "已打开本应用详情；请进入“电池/应用电池用量”并按下方步骤设置"
+            }
+            BackgroundSettingsDestination.GENERAL_SETTINGS ->
+                "已打开系统设置；请按下方路径或搜索关键词完成设置"
+            BackgroundSettingsDestination.NONE ->
+                "无法打开系统设置，请按下方说明手动设置"
+            BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
+                "请在电池优化列表中找到本应用并设为“不优化”"
+        }
+    }
+
+    private fun openBackgroundAppDetails() {
+        operationMessage = when (
+            BackgroundRunSettingsNavigator.openAppDetailsOrFallback(this)
+        ) {
+            BackgroundSettingsDestination.APP_DETAILS ->
+                "已打开本应用详情；请进入“电池/应用电池用量”并选择“无限制”"
+            BackgroundSettingsDestination.GENERAL_SETTINGS ->
+                "已打开系统设置；请搜索本应用并进入“电池/应用电池用量”"
+            BackgroundSettingsDestination.NONE ->
+                "无法打开系统设置，请按下方说明手动设置"
+            BackgroundSettingsDestination.OEM_PAGE ->
+                "请找到本应用并按下方步骤设置"
+            BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
+                "请在电池优化列表中找到本应用并设为“不优化”"
         }
     }
 
@@ -1246,8 +1293,12 @@ private fun AccessibilityServiceCard(
 }
 
 @androidx.compose.runtime.Composable
-private fun BatteryOptimizationWarningCard(
-    onOpenSettings: () -> Unit,
+private fun BackgroundRunSettingsCard(
+    guide: BackgroundRunGuide,
+    batteryOptimizationDisabled: Boolean,
+    onOpenManufacturerSettings: () -> Unit,
+    onOpenAppDetails: () -> Unit,
+    onOpenBatteryOptimization: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1255,20 +1306,52 @@ private fun BatteryOptimizationWarningCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "建议关闭电池优化",
+                if (batteryOptimizationDisabled) "后台运行设置" else "建议完善后台运行设置",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.error,
+                color = if (batteryOptimizationDisabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
             )
+            Text("已识别系统：${guide.displayName}")
             Text(
-                "当前应用未加入电池优化豁免名单，部分手机可能限制后台运行或无障碍服务。" +
-                    "建议在系统电池设置中将本应用设为“不优化/无限制”，并允许自启动及后台活动。",
+                if (batteryOptimizationDisabled) {
+                    "Android 电池优化：当前已豁免。厂商自启动和后台活动开关仍需手动确认。"
+                } else {
+                    "Android 电池优化：当前未豁免，锁屏后系统可能限制后台运行或无障碍服务。"
+                },
             )
+            Text("请按以下步骤允许本应用在后台运行：")
+            guide.manualSteps.forEachIndexed { index, step ->
+                Text("${index + 1}. $step")
+            }
             Button(
-                onClick = onOpenSettings,
+                onClick = onOpenManufacturerSettings,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("前往电池优化设置")
+                Text(guide.settingsButtonLabel)
             }
+            if (guide.hasDedicatedSettingsTargets) {
+                OutlinedButton(
+                    onClick = onOpenAppDetails,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("打开本应用详情（电池/后台）")
+                }
+            }
+            OutlinedButton(
+                onClick = onOpenBatteryOptimization,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("打开 Android 电池优化列表")
+            }
+            Text(
+                "不同系统版本的菜单可能不同；本应用只能打开相关页面，不能替你修改或读取多数厂商开关。" +
+                    "允许后台运行可能增加少量耗电，可随时在系统设置中关闭。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
