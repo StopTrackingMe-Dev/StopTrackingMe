@@ -95,6 +95,7 @@ internal class AppUpdateClient(
 
         val safeTag = release.tagName.replace(Regex("[^0-9A-Za-z._-]"), "_").take(80)
         val target = File(updateDirectory, "StopTrackingMe-$safeTag.apk")
+        AppUpdateCache.prepareForDownload(updateDirectory, target.name)
         if (target.isFile && verifyFile(target, release.asset)) {
             onProgress(
                 AppUpdateDownloadProgress(

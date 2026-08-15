@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.stoptrackingme.automation.AutomationRuntime
+import app.stoptrackingme.cache.AppCacheManager
+import app.stoptrackingme.cache.CacheSnapshot
+import app.stoptrackingme.cache.formatCacheSize
 import app.stoptrackingme.rules.ActiveRuleResolution
 import app.stoptrackingme.rules.CopyTriggerMode
 import app.stoptrackingme.rules.CopyTriggerPreferences
@@ -66,6 +69,7 @@ import app.stoptrackingme.qr.AndroidQrImageOutputStorage
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import app.stoptrackingme.update.AppUpdateCard
+import app.stoptrackingme.update.AppUpdateCache
 import app.stoptrackingme.update.AppUpdateClient
 import app.stoptrackingme.update.AppUpdateDownloadProgress
 import app.stoptrackingme.update.AppUpdateDownloadSource
@@ -85,6 +89,7 @@ import java.net.URI
 
 class MainActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
+    private lateinit var cacheManager: AppCacheManager
     private val updateClient = AppUpdateClient()
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
@@ -98,10 +103,13 @@ class MainActivity : ComponentActivity() {
     private var operationMessage by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
     private var remotePreview by mutableStateOf<RemoteRulePreview?>(null)
+    private var pendingRuleRemoval by mutableStateOf<PendingRuleRemoval?>(null)
     private var pendingLinkInput by mutableStateOf<PendingLinkInput?>(null)
     private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
     private var updateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Idle)
     private var updateDialogRelease by mutableStateOf<AppUpdateRelease?>(null)
+    private var cacheSnapshot by mutableStateOf<CacheSnapshot?>(null)
+    private var cacheActionBusy by mutableStateOf(false)
     private var pendingInstallUpdate: DownloadedAppUpdate? = null
     private var pendingUsageConsentIntent: Intent? = null
     private var autoReadClipboardOnFocus = false
@@ -146,7 +154,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = RuleRepository.get(this)
+        cacheManager = AppCacheManager(cacheDir)
+        AppUpdateCache.clear(cacheDir)
         AndroidQrImageOutputStorage(this).cleanupExpired()
+        QQShareActivity.cleanupExpiredThumbnails(cacheDir)
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
@@ -249,6 +260,28 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Text("从本地导入 JSON")
                             }
+                            val localRuleGroups = catalog.installedRules
+                                .filter { it.rule.source.kind == RuleSourceKind.LOCAL }
+                                .groupBy { it.rule.source.reference }
+                            if (localRuleGroups.isNotEmpty()) {
+                                Text("已导入本地规则", style = MaterialTheme.typography.titleMedium)
+                                localRuleGroups.forEach { (reference, installedRules) ->
+                                    val ruleNames = installedRules
+                                        .map { it.rule.displayName }
+                                        .distinct()
+                                        .joinToString("、")
+                                    LocalRuleRow(
+                                        ruleNames = ruleNames,
+                                        enabled = !busy,
+                                        onRemove = {
+                                            pendingRuleRemoval = PendingRuleRemoval.Local(
+                                                reference = reference,
+                                                ruleNames = ruleNames,
+                                            )
+                                        },
+                                    )
+                                }
+                            }
                             OutlinedTextField(
                                 value = remoteUrl,
                                 onValueChange = { remoteUrl = it },
@@ -281,6 +314,9 @@ class MainActivity : ComponentActivity() {
                                         url = url,
                                         enabled = !busy,
                                         onRefresh = { refreshSubscription(url) },
+                                        onRemove = {
+                                            pendingRuleRemoval = PendingRuleRemoval.Remote(url)
+                                        },
                                     )
                                 }
                             }
@@ -292,7 +328,7 @@ class MainActivity : ComponentActivity() {
 
                         MainSection.SETTINGS -> MainPage(modifier = Modifier.padding(padding)) {
                             Text("设置", style = MaterialTheme.typography.headlineMedium)
-                            Text("管理链接打开方式、自动化结果显示和隐私选项。")
+                            Text("管理应用更新、缓存、链接打开方式和隐私选项。")
                             OperationMessage(operationMessage)
 
                             AppUpdateCard(
@@ -318,6 +354,14 @@ class MainActivity : ComponentActivity() {
                                 onOpenRelease = { url ->
                                     openExternalLink(url, "查看 StopTrackingMe 发布说明")
                                 },
+                            )
+
+                            CacheManagementCard(
+                                snapshot = cacheSnapshot,
+                                clearing = cacheActionBusy,
+                                enabled = updateStatus !is AppUpdateStatus.Downloading,
+                                onRefresh = ::refreshCacheSnapshot,
+                                onClear = ::clearCache,
                             )
 
                             DefaultBrowserCard(
@@ -415,6 +459,17 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    pendingRuleRemoval?.let { pending ->
+                        RuleRemovalDialog(
+                            pending = pending,
+                            onDismiss = { pendingRuleRemoval = null },
+                            onConfirm = {
+                                pendingRuleRemoval = null
+                                removeRuleSource(pending)
+                            },
+                        )
+                    }
+
                     pendingLinkInput?.let { pending ->
                         RuleChoiceDialog(
                             pending = pending,
@@ -440,6 +495,7 @@ class MainActivity : ComponentActivity() {
         }
         handleIncomingIntentWhenAllowed(intent)
         checkForUpdates(interactive = false)
+        refreshCacheSnapshot()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -485,6 +541,7 @@ class MainActivity : ComponentActivity() {
         UsageReporter.flush(this)
         refreshState()
         refreshBatteryOptimizationState()
+        refreshCacheSnapshot()
     }
 
     override fun onStop() {
@@ -795,6 +852,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun removeRuleSource(pending: PendingRuleRemoval) {
+        if (busy) return
+        busy = true
+        operationMessage = null
+        lifecycleScope.launch(Dispatchers.IO) {
+            val outcome = runCatching {
+                when (pending) {
+                    is PendingRuleRemoval.Local -> repository.removeLocal(pending.reference)
+                    is PendingRuleRemoval.Remote -> repository.unsubscribeRemote(pending.url)
+                }
+            }
+            withContext(Dispatchers.Main) {
+                busy = false
+                val current = repository.currentCatalog()
+                catalog = current
+                copyTriggerModes = current.installedRules.associate { installed ->
+                    installed.key to CopyTriggerPreferences.get(this@MainActivity, installed)
+                }
+                operationMessage = outcome.fold(
+                    onSuccess = {
+                        when (pending) {
+                            is PendingRuleRemoval.Local -> "已删除本地规则：${pending.ruleNames}"
+                            is PendingRuleRemoval.Remote ->
+                                "已取消 ${displayHost(pending.url)} 的规则订阅并删除本地文件"
+                        }
+                    },
+                    onFailure = { "移除规则失败：${displayError(it)}" },
+                )
+            }
+        }
+    }
+
     private fun checkForUpdates(interactive: Boolean) {
         if (updateStatus is AppUpdateStatus.Checking ||
             updateStatus is AppUpdateStatus.Downloading
@@ -859,7 +948,7 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     val downloaded = updateClient.download(
                         release = release,
-                        updateDirectory = cacheDir.resolve("updates"),
+                        updateDirectory = AppUpdateCache.directory(cacheDir),
                         preferredSource = source,
                         allowFallback = allowFallback,
                         onProgress = { progress ->
@@ -875,6 +964,7 @@ class MainActivity : ComponentActivity() {
             outcome.fold(
                 onSuccess = { downloaded ->
                     updateStatus = AppUpdateStatus.Ready(downloaded)
+                    refreshCacheSnapshot()
                     requestInstallUpdate(downloaded)
                 },
                 onFailure = { error ->
@@ -882,8 +972,39 @@ class MainActivity : ComponentActivity() {
                         message = "更新下载失败：${displayError(error)}",
                         release = release,
                     )
+                    refreshCacheSnapshot()
                 },
             )
+        }
+    }
+
+    private fun refreshCacheSnapshot() {
+        if (!::cacheManager.isInitialized || cacheActionBusy) return
+        lifecycleScope.launch {
+            val snapshot = withContext(Dispatchers.IO) { cacheManager.snapshot() }
+            if (!cacheActionBusy) cacheSnapshot = snapshot
+        }
+    }
+
+    private fun clearCache() {
+        if (cacheActionBusy || updateStatus is AppUpdateStatus.Downloading) return
+        cacheActionBusy = true
+        operationMessage = null
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { cacheManager.clear() }
+            cacheSnapshot = result.after
+            cacheActionBusy = false
+            pendingInstallUpdate = null
+            val readyUpdate = updateStatus as? AppUpdateStatus.Ready
+            if (readyUpdate != null) {
+                updateStatus = AppUpdateStatus.Available(readyUpdate.update.release)
+            }
+            operationMessage = if (result.isComplete) {
+                "已清除 ${formatCacheSize(result.freedBytes)} 缓存"
+            } else {
+                "已清除 ${formatCacheSize(result.freedBytes)}，仍有 " +
+                    "${formatCacheSize(result.after.sizeBytes)} 正在被使用"
+            }
         }
     }
 
@@ -991,6 +1112,17 @@ private data class PendingLinkInput(
     val sourcePackage: String,
     val candidates: List<UrlRuleCandidate>,
 )
+
+private sealed interface PendingRuleRemoval {
+    data class Local(
+        val reference: String,
+        val ruleNames: String,
+    ) : PendingRuleRemoval
+
+    data class Remote(
+        val url: String,
+    ) : PendingRuleRemoval
+}
 
 @androidx.compose.runtime.Composable
 private fun ClipboardEntryCard(
@@ -1136,6 +1268,59 @@ private fun BatteryOptimizationWarningCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("前往电池优化设置")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun CacheManagementCard(
+    snapshot: CacheSnapshot?,
+    clearing: Boolean,
+    enabled: Boolean,
+    onRefresh: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("缓存管理", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when {
+                    clearing -> "正在清理缓存…"
+                    snapshot == null -> "正在统计缓存大小…"
+                    else -> "当前缓存：${formatCacheSize(snapshot.sizeBytes)}" +
+                        "（${snapshot.fileCount} 个文件）"
+                },
+            )
+            Text(
+                "这里统计应用缓存目录，包括二维码临时图片、更新包、分享封面和 SDK 缓存。" +
+                    "已保存到相册的图片和已安装规则不会被清除。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = enabled && !clearing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("重新统计")
+            }
+            Button(
+                onClick = onClear,
+                enabled = enabled && !clearing && (snapshot?.fileCount ?: 0) > 0,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("清除缓存")
+            }
+            if (!enabled) {
+                Text(
+                    "更新下载完成后才能清除缓存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1456,10 +1641,29 @@ private fun CopyTriggerChoice(
 }
 
 @androidx.compose.runtime.Composable
+private fun LocalRuleRow(
+    ruleNames: String,
+    enabled: Boolean,
+    onRemove: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(ruleNames, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = onRemove, enabled = enabled) { Text("删除") }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
 private fun SubscriptionRow(
     url: String,
     enabled: Boolean,
     onRefresh: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     val host = runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "未知域名" }
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -1469,9 +1673,44 @@ private fun SubscriptionRow(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(host, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onRefresh, enabled = enabled) { Text("手动刷新") }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = onRefresh, enabled = enabled) { Text("手动刷新") }
+                OutlinedButton(onClick = onRemove, enabled = enabled) { Text("取消订阅") }
+            }
         }
     }
+}
+
+@androidx.compose.runtime.Composable
+private fun RuleRemovalDialog(
+    pending: PendingRuleRemoval,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val isLocal = pending is PendingRuleRemoval.Local
+    val description = when (pending) {
+        is PendingRuleRemoval.Local ->
+            "将删除本地规则“${pending.ruleNames}”及对应文件。需要时可以重新导入。"
+        is PendingRuleRemoval.Remote -> {
+            val host = runCatching { URI(pending.url).host }.getOrNull()
+                .orEmpty()
+                .ifBlank { "该域名" }
+            "将取消 $host 的规则订阅并删除本地规则文件。需要时可以重新订阅。"
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isLocal) "删除本地规则？" else "取消规则订阅？") },
+        text = { Text(description) },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text(if (isLocal) "删除" else "取消订阅")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("保留") }
+        },
+    )
 }
 
 @androidx.compose.runtime.Composable

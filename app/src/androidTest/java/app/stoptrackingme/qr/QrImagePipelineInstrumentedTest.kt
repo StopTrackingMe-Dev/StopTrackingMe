@@ -88,6 +88,54 @@ class QrImagePipelineInstrumentedTest {
     }
 
     @Test
+    fun verificationFailureDeletesTheDraftAndRecyclesThePreview() = runBlocking {
+        val source = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+        }
+        val draftFile = File(context().cacheDir, "qr-pipeline-cleanup-test.png")
+        var decodedBitmap: Bitmap? = null
+        var deleteCalled = false
+        val storage = object : QrImageOutputStorage {
+            override fun writeDraft(bitmap: Bitmap, sourceMimeType: String): QrImageDraft {
+                decodedBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                draftFile.writeBytes(byteArrayOf(1))
+                return QrImageDraft(draftFile, QrImageFormats.PNG)
+            }
+
+            override fun decodeDraft(draft: QrImageDraft): Bitmap = requireNotNull(decodedBitmap)
+            override fun shareUri(file: File): Uri = error("不应分享")
+            override fun saveToGallery(file: File, format: QrImageFormat): Uri = error("不应保存")
+            override fun delete(file: File) {
+                deleteCalled = true
+                file.delete()
+            }
+            override fun cleanupExpired(nowMillis: Long) = Unit
+        }
+        val scanner = object : QrCodeScanner {
+            override suspend fun scan(bitmap: Bitmap): List<DetectedQrCode> =
+                error("模拟复扫失败")
+            override fun close() = Unit
+        }
+        val ruleCandidate = UrlRuleCandidate(installedRule(), RAW_URL)
+        val candidate = QrImageCandidate(
+            DetectedQrCode(RAW_URL, squareCorners(), QrBounds(20f, 20f, 280f, 280f)),
+            listOf(ruleCandidate),
+        )
+
+        val outcome = pipeline(scanner, storage).sanitize(
+            LoadedQrImage(source, "image/png"),
+            candidate,
+            ruleCandidate,
+        )
+
+        assertTrue(outcome is QrPipelineOutcome.Failure)
+        assertTrue(source.isRecycled)
+        assertTrue(requireNotNull(decodedBitmap).isRecycled)
+        assertTrue(deleteCalled)
+        assertTrue(!draftFile.exists())
+    }
+
+    @Test
     fun generatedPngIsDetectedReplacedAndExactlyRescanned() = runBlocking {
         val source = posterWithQr(RAW_URL)
         val scanner = MlKitQrCodeScanner()

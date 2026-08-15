@@ -19,6 +19,7 @@ class AppUpdateInstallReceiver : BroadcastReceiver() {
             }
 
             PackageInstaller.STATUS_SUCCESS -> {
+                AppUpdateCache.clear(context.cacheDir)
                 Toast.makeText(context, "更新安装成功", Toast.LENGTH_SHORT).show()
             }
 

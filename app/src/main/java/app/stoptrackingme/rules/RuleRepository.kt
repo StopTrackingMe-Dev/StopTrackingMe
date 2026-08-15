@@ -96,6 +96,9 @@ class RuleRepository private constructor(
                 .orEmpty()
                 .toList()
                 .sorted()
+            if (!cleanupOrphanRemoteFiles(subscriptions)) {
+                errors += "部分已退订规则的缓存文件无法删除"
+            }
             loadRemoteRules(subscriptions, installed, errors)
 
             catalog = RuleCatalog(
@@ -190,6 +193,42 @@ class RuleRepository private constructor(
         writeAtomically(remoteFile(normalizedUrl), bytes)
         reload()
         bundle
+    }
+
+    fun removeLocal(reference: String) = synchronized(lock) {
+        if (!LOCAL_FILE_NAME.matches(reference) || File(reference).name != reference) {
+            throw IllegalArgumentException("本地规则文件名无效")
+        }
+        val target = File(localDirectory, reference)
+        if (!target.isFile) throw IllegalArgumentException("本地规则不存在")
+        val removedKeys = catalog.installedRules
+            .filter { installed ->
+                installed.rule.source.kind == RuleSourceKind.LOCAL &&
+                    installed.rule.source.reference == reference
+            }
+            .mapTo(mutableSetOf(), InstalledRule::key)
+        if (!deleteRuleArtifacts(target)) throw IllegalStateException("无法删除本地规则文件")
+        clearPreferencesForRemovedRules(removedKeys)
+        reload()
+    }
+
+    @Suppress("ApplySharedPref", "UseKtx")
+    fun unsubscribeRemote(url: String) = synchronized(lock) {
+        if (url !in catalog.subscriptions) throw IllegalArgumentException("订阅不存在")
+        val removedKeys = catalog.installedRules
+            .filter { installed ->
+                installed.rule.source.kind == RuleSourceKind.REMOTE &&
+                    installed.rule.source.reference == url
+            }
+            .mapTo(mutableSetOf(), InstalledRule::key)
+        val updated = catalog.subscriptions.toMutableSet().apply { remove(url) }
+        if (!preferences.edit().putStringSet(KEY_SUBSCRIPTIONS, updated).commit()) {
+            throw IllegalStateException("无法保存退订配置")
+        }
+        val deleted = deleteRuleArtifacts(remoteFile(url))
+        clearPreferencesForRemovedRules(removedKeys)
+        reload()
+        if (!deleted) throw IllegalStateException("已取消订阅，但无法删除规则缓存文件")
     }
 
     private fun loadBuiltInRules(
@@ -313,6 +352,49 @@ class RuleRepository private constructor(
         }
     }
 
+    private fun clearPreferencesForRemovedRules(installedKeys: Set<String>) {
+        if (installedKeys.isEmpty()) return
+        preferences.edit {
+            preferences.all.forEach { (key, value) ->
+                if (key.startsWith(KEY_ACTIVE_PREFIX) &&
+                    value is String && value in installedKeys
+                ) {
+                    remove(key)
+                }
+            }
+        }
+        CopyTriggerPreferences.remove(appContext, installedKeys)
+    }
+
+    private fun cleanupOrphanRemoteFiles(subscriptions: List<String>): Boolean {
+        val expectedNames = subscriptions.mapTo(mutableSetOf()) { remoteFile(it).name }
+        var allDeleted = true
+        remoteDirectory.listFiles().orEmpty().forEach { file ->
+            val belongsToActiveSubscription = expectedNames.any { expectedName ->
+                file.name == expectedName ||
+                    file.name == "$expectedName.bak" ||
+                    file.name == "$expectedName.new"
+            }
+            if (!belongsToActiveSubscription && !deleteTree(file)) allDeleted = false
+        }
+        return allDeleted
+    }
+
+    private fun deleteRuleArtifacts(target: File): Boolean {
+        val artifacts = listOf(target, File(target.path + ".bak"), File(target.path + ".new"))
+        return artifacts.all { artifact -> !artifact.exists() || deleteTree(artifact) }
+    }
+
+    private fun deleteTree(file: File): Boolean {
+        var deleted = true
+        if (file.isDirectory) {
+            file.listFiles().orEmpty().forEach { child ->
+                if (!deleteTree(child)) deleted = false
+            }
+        }
+        return (!file.exists() || file.delete()) && deleted
+    }
+
     private fun remoteFile(url: String): File =
         File(remoteDirectory, "${sha256(url.toByteArray())}.json")
 
@@ -333,6 +415,7 @@ class RuleRepository private constructor(
         private const val LOCAL_DIRECTORY = "local"
         private const val REMOTE_DIRECTORY = "remote"
         private const val BUILTIN_ASSET_DIRECTORY = "rules"
+        private val LOCAL_FILE_NAME = Regex("[0-9a-f]{64}\\.json")
 
         @Volatile
         private var instance: RuleRepository? = null

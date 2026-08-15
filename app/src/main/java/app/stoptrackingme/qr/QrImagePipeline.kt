@@ -5,6 +5,7 @@ import app.stoptrackingme.link.LinkProcessor
 import app.stoptrackingme.link.UrlRuleCandidate
 import app.stoptrackingme.rules.AppRule
 import app.stoptrackingme.rules.CleanResult
+import kotlinx.coroutines.CancellationException
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.sqrt
@@ -100,51 +101,62 @@ class QrImagePipeline(
         }
         source.bitmap.recycle()
 
-        val previewBitmap = try {
-            outputStorage.decodeDraft(draft)
-        } catch (error: Exception) {
-            outputStorage.delete(draft.file)
-            return QrPipelineOutcome.Failure("无法复查输出图片：${safeMessage(error)}")
-        }
-        val verificationBitmap = try {
-            cropVerificationRegion(previewBitmap, rendered.verificationBounds)
-        } catch (_: OutOfMemoryError) {
-            previewBitmap.recycle()
-            outputStorage.delete(draft.file)
-            return QrPipelineOutcome.Failure("复查二维码区域时内存不足，未保留图片")
-        } catch (error: Exception) {
-            previewBitmap.recycle()
-            outputStorage.delete(draft.file)
-            return QrPipelineOutcome.Failure("无法复查二维码区域：${safeMessage(error)}")
-        }
-        val verification = try {
-            scanner.scan(verificationBitmap)
-        } catch (error: Exception) {
-            if (verificationBitmap !== previewBitmap) verificationBitmap.recycle()
-            previewBitmap.recycle()
-            outputStorage.delete(draft.file)
-            return QrPipelineOutcome.Failure("输出二维码离线复扫失败：${safeMessage(error)}")
-        }
-        if (verificationBitmap !== previewBitmap) verificationBitmap.recycle()
-        if (verification.size != 1 || verification.single().rawValue != cleanedUrl) {
-            previewBitmap.recycle()
-            outputStorage.delete(draft.file)
-            return QrPipelineOutcome.Failure("输出二维码未通过精确复扫验证，未保留图片")
-        }
+        var previewBitmap: Bitmap? = null
+        var outputOwnershipTransferred = false
+        try {
+            val decoded = try {
+                outputStorage.decodeDraft(draft)
+            } catch (error: Exception) {
+                return QrPipelineOutcome.Failure("无法复查输出图片：${safeMessage(error)}")
+            }
+            previewBitmap = decoded
+            val verificationBitmap = try {
+                cropVerificationRegion(decoded, rendered.verificationBounds)
+            } catch (_: OutOfMemoryError) {
+                return QrPipelineOutcome.Failure("复查二维码区域时内存不足，未保留图片")
+            } catch (error: Exception) {
+                return QrPipelineOutcome.Failure("无法复查二维码区域：${safeMessage(error)}")
+            }
+            val verification = try {
+                scanner.scan(verificationBitmap)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: OutOfMemoryError) {
+                return QrPipelineOutcome.Failure("输出二维码离线复扫时内存不足，未保留图片")
+            } catch (error: Exception) {
+                return QrPipelineOutcome.Failure(
+                    "输出二维码离线复扫失败：${safeMessage(error)}",
+                )
+            } finally {
+                if (verificationBitmap !== decoded) verificationBitmap.recycle()
+            }
+            if (verification.size != 1 || verification.single().rawValue != cleanedUrl) {
+                return QrPipelineOutcome.Failure("输出二维码未通过精确复扫验证，未保留图片")
+            }
 
-        return QrPipelineOutcome.Success(
-            QrSanitizationResult(
-                rawValue = candidate.detection.rawValue,
-                cleanResult = cleanResult,
-                image = SanitizedImage(
-                    sourceMimeType = source.sourceMimeType,
-                    outputMimeType = draft.format.mimeType,
-                    cleanedUrl = cleanedUrl,
-                    bitmap = previewBitmap,
-                    file = draft.file,
+            val outcome = QrPipelineOutcome.Success(
+                QrSanitizationResult(
+                    rawValue = candidate.detection.rawValue,
+                    cleanResult = cleanResult,
+                    image = SanitizedImage(
+                        sourceMimeType = source.sourceMimeType,
+                        outputMimeType = draft.format.mimeType,
+                        cleanedUrl = cleanedUrl,
+                        bitmap = decoded,
+                        file = draft.file,
+                    ),
                 ),
-            ),
-        )
+            )
+            outputOwnershipTransferred = true
+            return outcome
+        } finally {
+            if (!outputOwnershipTransferred) {
+                previewBitmap?.let { bitmap ->
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+                outputStorage.delete(draft.file)
+            }
+        }
     }
 
     private fun cropVerificationRegion(bitmap: Bitmap, bounds: QrBounds): Bitmap {

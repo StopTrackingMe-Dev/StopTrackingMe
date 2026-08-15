@@ -18,6 +18,13 @@ object CopyTriggerPreferences {
         }
     }
 
+    internal fun remove(context: Context, installedKeys: Set<String>) {
+        if (installedKeys.isEmpty()) return
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit {
+            installedKeys.forEach { key -> remove(key) }
+        }
+    }
+
     internal fun resolve(defaultMode: CopyTriggerMode, stored: String?): CopyTriggerMode =
         CopyTriggerMode.entries.firstOrNull { it.name == stored } ?: defaultMode
 }

@@ -140,8 +140,24 @@ class QrImageActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        releaseOwnedImages()
         scanner.close()
         super.onDestroy()
+    }
+
+    private fun releaseOwnedImages() {
+        (state as? QrImageProcessingState.Preview)?.result?.image?.let { image ->
+            if (!image.bitmap.isRecycled) image.bitmap.recycle()
+            outputStorage.delete(image.file)
+        }
+        if (state !is QrImageProcessingState.Scanning &&
+            state !is QrImageProcessingState.Sanitizing
+        ) {
+            sourceImage?.bitmap?.let { bitmap ->
+                if (!bitmap.isRecycled) bitmap.recycle()
+            }
+        }
+        sourceImage = null
     }
 
     private fun scanSource(uri: Uri) {

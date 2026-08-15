@@ -196,11 +196,7 @@ class QQShareActivity : Activity() {
     private fun writeTemporaryThumbnail(bytes: ByteArray): String? {
         val directory = File(cacheDir, QQ_IMAGE_DIRECTORY)
         if (!directory.exists() && !directory.mkdirs()) return null
-        directory.listFiles()?.forEach { stale ->
-            if (stale.isFile && System.currentTimeMillis() - stale.lastModified() > STALE_IMAGE_AGE_MS) {
-                stale.delete()
-            }
-        }
+        cleanupExpiredThumbnails(cacheDir)
         val file = File(directory, "share_${UUID.randomUUID()}.jpg")
         file.outputStream().use { it.write(bytes) }
         temporaryThumbnail = file
@@ -249,6 +245,19 @@ class QQShareActivity : Activity() {
         private const val STATE_REQUEST_SENT = "qq_request_sent"
         private const val QQ_IMAGE_DIRECTORY = "qq_share_images"
         private const val STALE_IMAGE_AGE_MS = 24 * 60 * 60 * 1_000L
+
+        internal fun cleanupExpiredThumbnails(
+            cacheDirectory: File,
+            nowMillis: Long = System.currentTimeMillis(),
+        ) {
+            File(cacheDirectory, QQ_IMAGE_DIRECTORY).listFiles().orEmpty().forEach { stale ->
+                if (stale.isFile && stale.lastModified() > 0L &&
+                    nowMillis - stale.lastModified() >= STALE_IMAGE_AGE_MS
+                ) {
+                    stale.delete()
+                }
+            }
+        }
 
         fun createIntent(
             context: Context,
