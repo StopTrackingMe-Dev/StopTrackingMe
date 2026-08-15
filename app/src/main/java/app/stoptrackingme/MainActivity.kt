@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
     private val updateClient = AppUpdateClient()
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
+    private var batteryOptimizationDisabled by mutableStateOf(true)
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var qqSdkConsentGranted by mutableStateOf(false)
     private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)
@@ -150,6 +151,7 @@ class MainActivity : ComponentActivity() {
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
+        refreshBatteryOptimizationState()
         autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
         enableEdgeToEdge()
         setContent {
@@ -181,6 +183,12 @@ class MainActivity : ComponentActivity() {
                                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                                 },
                             )
+
+                            if (!batteryOptimizationDisabled) {
+                                BatteryOptimizationWarningCard(
+                                    onOpenSettings = ::openBatteryOptimizationSettings,
+                                )
+                            }
 
                             ClipboardEntryCard(
                                 enabled = !busy,
@@ -476,6 +484,7 @@ class MainActivity : ComponentActivity() {
         usageReportingConsent = UsageReporter.getConsent(this)
         UsageReporter.flush(this)
         refreshState()
+        refreshBatteryOptimizationState()
     }
 
     override fun onStop() {
@@ -539,6 +548,25 @@ class MainActivity : ComponentActivity() {
         serviceState = getSharedPreferences(ServiceStatus.PREFERENCES, MODE_PRIVATE)
             .getString(ServiceStatus.KEY_MESSAGE, "尚未收到服务状态")
             .orEmpty()
+    }
+
+    private fun refreshBatteryOptimizationState() {
+        batteryOptimizationDisabled = isBatteryOptimizationDisabled(this)
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        runCatching {
+            startActivity(batteryOptimizationSettingsIntent())
+        }.recoverCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null),
+                ),
+            )
+        }.onFailure { error ->
+            operationMessage = "无法打开电池优化设置：${displayError(error)}"
+        }
     }
 
     private fun readClipboard(reportMissing: Boolean = true) {
@@ -1080,6 +1108,34 @@ private fun AccessibilityServiceCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(if (enabled) "管理无障碍服务" else "前往开启无障碍服务")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun BatteryOptimizationWarningCard(
+    onOpenSettings: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                "建议关闭电池优化",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Text(
+                "当前应用未加入电池优化豁免名单，部分手机可能限制后台运行或无障碍服务。" +
+                    "建议在系统电池设置中将本应用设为“不优化/无限制”，并允许自启动及后台活动。",
+            )
+            Button(
+                onClick = onOpenSettings,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("前往电池优化设置")
             }
         }
     }

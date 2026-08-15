@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.stoptrackingme.rules.RuleParser
@@ -87,6 +89,25 @@ class AppInstrumentedTest {
             catalog.installedRules.any { installed ->
                 installed.rule.source.kind == RuleSourceKind.BUILTIN
             },
+        )
+    }
+
+    @Test
+    fun batteryOptimizationStatusMatchesSystemExemptionState() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val powerManager = context.getSystemService(PowerManager::class.java)
+
+        assertEquals(
+            powerManager.isIgnoringBatteryOptimizations(context.packageName),
+            isBatteryOptimizationDisabled(context),
+        )
+    }
+
+    @Test
+    fun batteryOptimizationSettingsUsesUserManagedExemptionScreen() {
+        assertEquals(
+            Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+            batteryOptimizationSettingsIntent().action,
         )
     }
 
