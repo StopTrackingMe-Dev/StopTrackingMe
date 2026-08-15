@@ -3,7 +3,7 @@
   "rules": [
     {
       "id": "builtin.bilibili.share-clean",
-      "version": 6,
+      "version": 7,
       "displayName": "哔哩哔哩",
       "source": {
         "kind": "BUILTIN",
@@ -30,6 +30,10 @@
         {
           "textRegex": "^(分享(到|至)?|分享到|Share( to)?)$",
           "descriptionRegex": "^(分享(到|至)?|分享到|Share( to)?)$"
+        },
+        {
+          "resourceId": "recycler",
+          "className": "android.widget.LinearLayout"
         },
         {
           "resourceId": "recycler",
