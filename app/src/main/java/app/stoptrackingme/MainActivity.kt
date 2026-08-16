@@ -196,14 +196,6 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
 
-                            BackgroundRunSettingsCard(
-                                guide = backgroundRunGuide,
-                                batteryOptimizationDisabled = batteryOptimizationDisabled,
-                                onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
-                                onOpenAppDetails = ::openBackgroundAppDetails,
-                                onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
-                            )
-
                             ClipboardEntryCard(
                                 enabled = !busy,
                                 onReadClipboard = ::readClipboard,
@@ -331,8 +323,16 @@ class MainActivity : ComponentActivity() {
 
                         MainSection.SETTINGS -> MainPage(modifier = Modifier.padding(padding)) {
                             Text("设置", style = MaterialTheme.typography.headlineMedium)
-                            Text("管理应用更新、缓存、链接打开方式和隐私选项。")
+                            Text("管理后台运行、应用更新、缓存、链接打开方式和隐私选项。")
                             OperationMessage(operationMessage)
+
+                            BackgroundRunSettingsCard(
+                                guide = backgroundRunGuide,
+                                batteryOptimizationDisabled = batteryOptimizationDisabled,
+                                onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
+                                onOpenAppDetails = ::openBackgroundAppDetails,
+                                onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
+                            )
 
                             AppUpdateCard(
                                 status = updateStatus,
