@@ -10,12 +10,19 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
+import java.time.LocalDate
 import java.util.Locale
 
 data class RuleCatalog(
     val installedRules: List<InstalledRule>,
     val loadErrors: List<String>,
     val subscriptions: List<String>,
+)
+
+data class SubscriptionRefreshResult(
+    val attempted: Boolean,
+    val refreshedCount: Int = 0,
+    val failedCount: Int = 0,
 )
 
 sealed interface ActiveRuleResolution {
@@ -192,6 +199,44 @@ class RuleRepository private constructor(
         writeAtomically(remoteFile(normalizedUrl), bytes)
         reload()
         bundle
+    }
+
+    @Suppress("ApplySharedPref", "UseKtx")
+    fun refreshSubscriptionsIfNeeded(
+        today: LocalDate = LocalDate.now(),
+    ): SubscriptionRefreshResult {
+        val subscriptions = synchronized(lock) {
+            val lastRefreshDate = preferences.getString(KEY_LAST_AUTO_REFRESH_DATE, null)
+            if (!DailySubscriptionRefreshPolicy.shouldRefresh(lastRefreshDate, today)) {
+                return SubscriptionRefreshResult(attempted = false)
+            }
+
+            // Mark the attempt before downloading so repeated launches on the same day
+            // cannot start duplicate network requests.
+            if (!preferences.edit()
+                    .putString(KEY_LAST_AUTO_REFRESH_DATE, today.toString())
+                    .commit()
+            ) {
+                throw IllegalStateException("无法保存订阅自动更新日期")
+            }
+            catalog.subscriptions
+        }
+
+        var refreshedCount = 0
+        var failedCount = 0
+        subscriptions.forEach { url ->
+            try {
+                refreshRemote(url)
+                refreshedCount++
+            } catch (_: Exception) {
+                failedCount++
+            }
+        }
+        return SubscriptionRefreshResult(
+            attempted = true,
+            refreshedCount = refreshedCount,
+            failedCount = failedCount,
+        )
     }
 
     fun removeLocal(reference: String) = synchronized(lock) {
@@ -385,6 +430,7 @@ class RuleRepository private constructor(
         const val ACTION_CATALOG_CHANGED = "app.stoptrackingme.RULE_CATALOG_CHANGED"
         private const val PREFERENCES = "rule_repository"
         private const val KEY_SUBSCRIPTIONS = "subscriptions"
+        private const val KEY_LAST_AUTO_REFRESH_DATE = "last_auto_refresh_date"
         private const val KEY_ACTIVE_PREFIX = "active."
         private const val RULE_DIRECTORY = "rules"
         private const val LOCAL_DIRECTORY = "local"

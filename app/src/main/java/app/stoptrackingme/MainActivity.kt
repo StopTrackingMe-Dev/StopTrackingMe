@@ -244,7 +244,7 @@ class MainActivity : ComponentActivity() {
                             )
 
                             Text("规则订阅", style = MaterialTheme.typography.titleLarge)
-                            Text("可从本地导入规则，或添加需要手动刷新的 HTTPS 订阅。")
+                            Text("可从本地导入规则，或添加每天首次启动程序时自动更新的 HTTPS 订阅。")
                             OutlinedButton(
                                 onClick = {
                                     importRuleDocument.launch(
@@ -308,7 +308,6 @@ class MainActivity : ComponentActivity() {
                                     SubscriptionRow(
                                         url = url,
                                         enabled = !busy,
-                                        onRefresh = { refreshSubscription(url) },
                                         onRemove = {
                                             pendingRuleRemoval = PendingRuleRemoval.Remote(url)
                                         },
@@ -538,6 +537,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         reloadCatalog()
+        refreshSubscriptionsIfNeeded()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
@@ -875,7 +875,7 @@ class MainActivity : ComponentActivity() {
                 operationMessage = outcome.fold(
                     onSuccess = {
                         remoteUrl = ""
-                        "订阅已信任并安装；后续只会手动刷新"
+                        "订阅已信任并安装；以后每天首次启动时自动更新"
                     },
                     onFailure = { "安装订阅失败：${displayError(it)}" },
                 )
@@ -883,17 +883,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun refreshSubscription(url: String) {
-        busy = true
-        operationMessage = null
+    private fun refreshSubscriptionsIfNeeded() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val outcome = runCatching { repository.refreshRemote(url) }
+            val outcome = runCatching { repository.refreshSubscriptionsIfNeeded() }
             withContext(Dispatchers.Main) {
-                busy = false
-                catalog = repository.currentCatalog()
-                operationMessage = outcome.fold(
-                    onSuccess = { "订阅已完整校验并原子更新（${it.rules.size} 条）" },
-                    onFailure = { "刷新失败，继续使用旧版本：${displayError(it)}" },
+                outcome.fold(
+                    onSuccess = { result ->
+                        if (!result.attempted ||
+                            result.refreshedCount + result.failedCount == 0
+                        ) {
+                            return@fold
+                        }
+                        catalog = repository.currentCatalog()
+                        operationMessage = if (result.failedCount == 0) {
+                            "今日已自动更新 ${result.refreshedCount} 个订阅"
+                        } else {
+                            "今日已自动更新 ${result.refreshedCount} 个订阅；" +
+                                "${result.failedCount} 个失败，继续使用旧版本"
+                        }
+                    },
+                    onFailure = {
+                        operationMessage = "自动更新订阅失败，继续使用旧版本：${displayError(it)}"
+                    },
                 )
             }
         }
@@ -1745,7 +1756,6 @@ private fun LocalRuleRow(
 private fun SubscriptionRow(
     url: String,
     enabled: Boolean,
-    onRefresh: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val host = runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "未知域名" }
@@ -1757,7 +1767,11 @@ private fun SubscriptionRow(
         ) {
             Text(host, modifier = Modifier.weight(1f))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(onClick = onRefresh, enabled = enabled) { Text("手动刷新") }
+                Text(
+                    "每天首次启动时自动更新",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedButton(onClick = onRemove, enabled = enabled) { Text("取消订阅") }
             }
         }
