@@ -131,7 +131,7 @@ JSON 会先处理一次反斜杠，所以正则中的 `\s`、`\.` 应分别写�
 | `schemaVersion` | 整数 | 是 | 当前只能填 `1`。 |
 | `rules` | 对象数组 | 是 | 1～32 条规则；同一数组内的 `id` 必须唯一。 |
 
-一个 JSON 文件可以包含多个应用规则，也可以只包含一条。为便于维护，内置规则目前采用“一文件一规则”。
+一个 JSON 文件可以包含多个应用规则，也可以只包含一条。外置规则仓库采用“一文件一规则”，再由 CI 合并为订阅 bundle。
 
 ## 4. 单条规则字段总览
 
@@ -183,16 +183,16 @@ JSON 会先处理一次反斜杠，所以正则中的 `\s`、`\.` 应分别写�
 
 | 字段 | 类型 | 必填 | 填写方式 |
 | --- | --- | --- | --- |
-| `kind` | 枚举字符串 | 是 | `BUILTIN`、`LOCAL` 或 `REMOTE`。 |
+| `kind` | 枚举字符串 | 是 | `BUILTIN`、`LOCAL` 或 `REMOTE`；当前应用只从本地文件或远程订阅加载规则。 |
 | `reference` | 字符串 | 是 | 非空、最长 512 个字符；通常是资源路径、文件名或订阅 URL。 |
 
 推荐写法：
 
-- 内置资源：`"kind": "BUILTIN"`，`reference` 填 `assets/rules/文件名.json`。
+- 外置规则仓库：`"kind": "REMOTE"`，`reference` 填订阅 bundle 地址。
 - 本地导入：`"kind": "LOCAL"`，`reference` 填便于识别的文件名。
 - 远程订阅：`"kind": "REMOTE"`，`reference` 填发布地址。
 
-通过应用仓库加载时，运行时会用实际加载渠道覆盖声明值：内置文件会记录真实资源路径，本地文件会记录内部文件名，订阅会记录真实 HTTPS URL。因此本地或远程规则不能通过填写 `BUILTIN` 冒充内置规则；但 `source` 对象仍是语法上的必填项。
+`BUILTIN` 仅为旧格式兼容值，当前 APK 不再携带或加载内置规则。通过应用仓库加载时，运行时会用实际加载渠道覆盖声明值：本地文件会记录内部文件名，订阅会记录真实 HTTPS URL。因此本地或远程规则不能通过填写 `BUILTIN` 冒充内置规则；但 `source` 对象仍是语法上的必填项。
 
 ### 5.2 `target`
 
@@ -661,12 +661,12 @@ Bootstrap 只在即将执行首个配置请求时运行；单纯的默认 HTML �
 
 | 需求 | 参考文件 |
 | --- | --- |
-| 普通 HTML 元数据与脚本 JSON | [xiaohongshu.json](app/src/main/assets/rules/xiaohongshu.json) |
-| 用户确认、滚动锚点、JSON GET API | [bilibili.json](app/src/main/assets/rules/bilibili.json) |
-| 简单 JSON GET API | [netease-cloud-music.json](app/src/main/assets/rules/netease-cloud-music.json) |
-| POST 表单和 `MD5_CONCAT` 签名 | [baidu-tieba.json](app/src/main/assets/rules/baidu-tieba.json) |
-| Bootstrap 访客会话 | [weibo.json](app/src/main/assets/rules/weibo.json) |
-| 主请求、备用请求和通配 JSON 路径 | [zhihu.json](app/src/main/assets/rules/zhihu.json) |
+| 普通 HTML 元数据与脚本 JSON | [xiaohongshu.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/xiaohongshu.json) |
+| 用户确认、滚动锚点、JSON GET API | [bilibili.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/bilibili.json) |
+| 简单 JSON GET API | [netease-cloud-music.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/netease-cloud-music.json) |
+| POST 表单和 `MD5_CONCAT` 签名 | [baidu-tieba.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/baidu-tieba.json) |
+| Bootstrap 访客会话 | [weibo.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/weibo.json) |
+| 主请求、备用请求和通配 JSON 路径 | [zhihu.json](https://github.com/StopTrackingMe-Dev/rules/blob/main/rules/zhihu.json) |
 
 ## 13. 编写和验证建议
 
@@ -678,11 +678,14 @@ Bootstrap 只在即将执行首个配置请求时运行；单纯的默认 HTML �
 6. 把所有可能的短链入口放入 `shortLinkHosts`，把所有合法最终页面和预览 API 主机放入 `allowedFinalHosts`。
 7. 清洗参数时先确认哪些参数决定内容、页码、时间点、鉴权或签名，并加入 `forceKeep`。
 8. 修改已有规则后递增 `version`，但不要假设应用会自动按版本选择规则。
-9. 内置规则应运行单元测试：
+9. 外置规则变更后应先运行 Android 单元测试：
 
 ~~~powershell
 .\gradlew.bat testDebugUnitTest
 ~~~
+
+测试夹具来自外置 `stoptracking-rules` 仓库。默认路径是主项目同级目录；若仓库位于其他位置，使用
+`./gradlew.bat -PrulesRepoDir=规则仓库路径 testDebugUnitTest` 指定。
 
 规则加载失败时，优先检查：
 

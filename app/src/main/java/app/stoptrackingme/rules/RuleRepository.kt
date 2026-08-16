@@ -90,7 +90,6 @@ class RuleRepository private constructor(
             val installed = ArrayList<InstalledRule>()
             val errors = ArrayList<String>()
 
-            loadBuiltInRules(installed, errors)
             loadLocalRules(installed, errors)
             val subscriptions = preferences.getStringSet(KEY_SUBSCRIPTIONS, emptySet())
                 .orEmpty()
@@ -229,30 +228,6 @@ class RuleRepository private constructor(
         clearPreferencesForRemovedRules(removedKeys)
         reload()
         if (!deleted) throw IllegalStateException("已取消订阅，但无法删除规则缓存文件")
-    }
-
-    private fun loadBuiltInRules(
-        destination: MutableList<InstalledRule>,
-        errors: MutableList<String>,
-    ) {
-        val names = try {
-            appContext.assets.list(BUILTIN_ASSET_DIRECTORY).orEmpty().filter { it.endsWith(".json") }
-        } catch (error: Exception) {
-            errors += "无法列出内置规则"
-            return
-        }
-        names.forEach { name ->
-            try {
-                val reference = "$BUILTIN_ASSET_DIRECTORY/$name"
-                val source = RuleSource(RuleSourceKind.BUILTIN, reference)
-                val bytes = appContext.assets.open(reference).use(::readBounded)
-                parser.parse(bytes, source).rules.forEach { rule ->
-                    destination += InstalledRule("BUILTIN:${rule.id}", rule)
-                }
-            } catch (error: Exception) {
-                errors += "内置规则 $name 无效：${safeMessage(error)}"
-            }
-        }
     }
 
     private fun loadLocalRules(
@@ -414,7 +389,6 @@ class RuleRepository private constructor(
         private const val RULE_DIRECTORY = "rules"
         private const val LOCAL_DIRECTORY = "local"
         private const val REMOTE_DIRECTORY = "remote"
-        private const val BUILTIN_ASSET_DIRECTORY = "rules"
         private val LOCAL_FILE_NAME = Regex("[0-9a-f]{64}\\.json")
 
         @Volatile

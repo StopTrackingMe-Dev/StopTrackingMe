@@ -14,13 +14,13 @@ class RuleParserTest {
     private val parser = RuleParser()
 
     @Test
-    fun parsesBuiltInVersionedRule() {
+    fun parsesExternalVersionedRule() {
         val bundle = parser.parse(TestFixtures.builtInRuleBytes())
 
         assertEquals(1, bundle.schemaVersion)
         assertEquals(1, bundle.rules.size)
         val rule = bundle.rules.single()
-        assertEquals(RuleSourceKind.BUILTIN, rule.source.kind)
+        assertEquals(RuleSourceKind.REMOTE, rule.source.kind)
         assertTrue(rule.shareTriggerSelectors.isNotEmpty())
         assertTrue(rule.sharePanelFingerprint.size >= 2)
         assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)

@@ -215,7 +215,7 @@ class MainActivity : ComponentActivity() {
 
                         MainSection.RULES -> MainPage(modifier = Modifier.padding(padding)) {
                             Text("规则", style = MaterialTheme.typography.headlineMedium)
-                            Text("查看当前支持的规则，并在这里集中管理导入与订阅。")
+                            Text("规则不会随 APK 内置；请在这里管理本地导入和 HTTPS 订阅。")
                             OperationMessage(operationMessage)
 
                             RuleCatalogSection(
@@ -1669,7 +1669,7 @@ private fun RuleChoice(
                 buildString {
                     append(
                         when (installed.rule.source.kind) {
-                            RuleSourceKind.BUILTIN -> "APK 内置"
+                            RuleSourceKind.BUILTIN -> "旧格式来源"
                             RuleSourceKind.LOCAL -> "本地导入"
                             RuleSourceKind.REMOTE -> "远程订阅"
                         },

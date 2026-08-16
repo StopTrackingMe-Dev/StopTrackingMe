@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val rulesRepositoryPath = providers.gradleProperty("rulesRepoDir")
+    .orElse(providers.environmentVariable("STOPTRACKING_RULES_DIR"))
+    .orElse("../stoptracking-rules")
+
 val qqAppId = "1905345753"
 val usageApiBaseUrl = "https://api.stoptracking.me"
 val updateManifestUrl = "https://stoptracking.me/latest.json"
@@ -54,6 +58,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    sourceSets["test"].resources.directories.add(
+        rootProject.file(rulesRepositoryPath.get()).resolve("rules").absolutePath,
+    )
     buildFeatures {
         buildConfig = true
         compose = true

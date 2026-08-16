@@ -39,6 +39,7 @@ class RuleSubscriptionClient(
                 connection.connectTimeout = TIMEOUT_MS
                 connection.readTimeout = TIMEOUT_MS
                 connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("Cache-Control", "no-cache")
                 connection.setRequestProperty("User-Agent", USER_AGENT)
                 val status = connection.responseCode
                 if (status in REDIRECT_STATUS_CODES) {
@@ -46,8 +47,10 @@ class RuleSubscriptionClient(
                     val location = connection.getHeaderField("Location")
                         ?: throw RuleValidationException("订阅重定向缺少目标")
                     val next = current.resolve(location)
+                    val nextHost = next.host?.lowercase()
                     if (!next.scheme.equals("https", ignoreCase = true) ||
-                        !next.host.equals(originalHost, ignoreCase = true) ||
+                        nextHost == null ||
+                        !isAllowedRedirect(originalHost, nextHost) ||
                         next.userInfo != null
                     ) {
                         throw RuleValidationException("订阅不允许跨域或降级重定向")
@@ -86,6 +89,11 @@ class RuleSubscriptionClient(
         private const val MAX_REDIRECTS = 2
         private const val TIMEOUT_MS = 8_000
         private const val USER_AGENT = "StopTrackingRuleClient/1"
+        private const val GITHUB_HOST = "github.com"
+        private val GITHUB_DOWNLOAD_HOSTS = setOf(
+            "release-assets.githubusercontent.com",
+            "objects.githubusercontent.com",
+        )
         private val REDIRECT_STATUS_CODES = setOf(
             HttpURLConnection.HTTP_MOVED_PERM,
             HttpURLConnection.HTTP_MOVED_TEMP,
@@ -93,5 +101,9 @@ class RuleSubscriptionClient(
             307,
             308,
         )
+
+        private fun isAllowedRedirect(originalHost: String, nextHost: String): Boolean =
+            nextHost == originalHost ||
+                (originalHost == GITHUB_HOST && nextHost in GITHUB_DOWNLOAD_HOSTS)
     }
 }
