@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
     private var serviceEnabled by mutableStateOf(false)
     private var serviceState by mutableStateOf("尚未收到服务状态")
     private var batteryOptimizationDisabled by mutableStateOf(true)
+    private var firstRunGuideVisible by mutableStateOf(false)
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var qqSdkConsentGranted by mutableStateOf(false)
     private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)
@@ -112,7 +113,7 @@ class MainActivity : ComponentActivity() {
     private var cacheSnapshot by mutableStateOf<CacheSnapshot?>(null)
     private var cacheActionBusy by mutableStateOf(false)
     private var pendingInstallUpdate: DownloadedAppUpdate? = null
-    private var pendingUsageConsentIntent: Intent? = null
+    private var pendingStartupIntent: Intent? = null
     private var autoReadClipboardOnFocus = false
 
     private val importRuleDocument =
@@ -164,7 +165,14 @@ class MainActivity : ComponentActivity() {
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
         refreshBatteryOptimizationState()
-        autoReadClipboardOnFocus = savedInstanceState == null && intent.action == Intent.ACTION_MAIN
+        firstRunGuideVisible = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_FIRST_RUN_GUIDE_VISIBLE) }
+            ?.getBoolean(STATE_FIRST_RUN_GUIDE_VISIBLE)
+            ?: !FirstRunPreferences.isSetupGuideCompleted(this)
+        autoReadClipboardOnFocus = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS) }
+            ?.getBoolean(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS)
+            ?: (intent.action == Intent.ACTION_MAIN)
         enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
@@ -333,6 +341,13 @@ class MainActivity : ComponentActivity() {
                                 onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
                             )
 
+                            FirstRunGuideSettingsCard(
+                                onOpenGuide = {
+                                    operationMessage = null
+                                    firstRunGuideVisible = true
+                                },
+                            )
+
                             AppUpdateCard(
                                 status = updateStatus,
                                 currentVersionName = BuildConfig.VERSION_NAME,
@@ -421,6 +436,24 @@ class MainActivity : ComponentActivity() {
                             )
                         },
                     )
+                } else if (firstRunGuideVisible) {
+                    FirstRunGuideDialog(
+                        guide = backgroundRunGuide,
+                        accessibilityEnabled = serviceEnabled,
+                        batteryOptimizationDisabled = batteryOptimizationDisabled,
+                        onOpenAccessibilitySettings = {
+                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        },
+                        onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
+                        onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
+                        onOpenRules = {
+                            openExternalLink(
+                                PUBLIC_RULES_URL,
+                                "查看 StopTrackingMe 公开规则",
+                            )
+                        },
+                        onComplete = ::completeFirstRunGuide,
+                    )
                 } else {
                     updateDialogRelease?.let { release ->
                         UpdateAvailableDialog(
@@ -500,14 +533,18 @@ class MainActivity : ComponentActivity() {
         refreshCacheSnapshot()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_FIRST_RUN_GUIDE_VISIBLE, firstRunGuideVisible)
+        outState.putBoolean(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS, autoReadClipboardOnFocus)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == Intent.ACTION_MAIN) {
             autoReadClipboardOnFocus = true
-            if (hasWindowFocus() && usageReportingConsent != UsageReportingConsent.UNSET) {
-                readClipboard(reportMissing = false)
-            }
+            continueStartupActionsIfAllowed()
         } else {
             autoReadClipboardOnFocus = false
             handleIncomingIntentWhenAllowed(intent)
@@ -516,12 +553,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && autoReadClipboardOnFocus &&
-            usageReportingConsent != UsageReportingConsent.UNSET
-        ) {
-            autoReadClipboardOnFocus = false
-            readClipboard(reportMissing = false)
-        }
+        if (hasFocus) continueStartupActionsIfAllowed()
     }
 
     override fun onStart() {
@@ -574,22 +606,32 @@ class MainActivity : ComponentActivity() {
     ) {
         usageReportingConsent = consent
         operationMessage = message
-        pendingUsageConsentIntent?.let { pending ->
-            pendingUsageConsentIntent = null
+        continueStartupActionsIfAllowed()
+    }
+
+    private fun handleIncomingIntentWhenAllowed(incoming: Intent) {
+        if (!startupActionsAllowed()) {
+            if (incoming.action != Intent.ACTION_MAIN) pendingStartupIntent = incoming
+            return
+        }
+        handleIncomingIntent(incoming)
+    }
+
+    private fun startupActionsAllowed(): Boolean =
+        usageReportingConsent != UsageReportingConsent.UNSET && !firstRunGuideVisible
+
+    private fun continueStartupActionsIfAllowed() {
+        if (!startupActionsAllowed()) return
+
+        pendingStartupIntent?.let { pending ->
+            pendingStartupIntent = null
             handleIncomingIntent(pending)
+            return
         }
         if (hasWindowFocus() && autoReadClipboardOnFocus) {
             autoReadClipboardOnFocus = false
             readClipboard(reportMissing = false)
         }
-    }
-
-    private fun handleIncomingIntentWhenAllowed(incoming: Intent) {
-        if (usageReportingConsent == UsageReportingConsent.UNSET) {
-            if (incoming.action != Intent.ACTION_MAIN) pendingUsageConsentIntent = incoming
-            return
-        }
-        handleIncomingIntent(incoming)
     }
 
     private fun reloadCatalog() {
@@ -612,6 +654,13 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshBatteryOptimizationState() {
         batteryOptimizationDisabled = isBatteryOptimizationDisabled(this)
+    }
+
+    private fun completeFirstRunGuide() {
+        FirstRunPreferences.markSetupGuideCompleted(this)
+        firstRunGuideVisible = false
+        operationMessage = "首次使用引导已完成；之后可在设置中重新查看"
+        continueStartupActionsIfAllowed()
     }
 
     private fun openBatteryOptimizationSettings() {
@@ -700,9 +749,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(incoming: Intent) {
-        when (incoming.action) {
-            Intent.ACTION_VIEW -> handleViewIntent(incoming)
-            Intent.ACTION_SEND -> handleSendIntent(incoming)
+        val consumed = when (incoming.action) {
+            Intent.ACTION_VIEW -> {
+                handleViewIntent(incoming)
+                true
+            }
+            Intent.ACTION_SEND -> {
+                handleSendIntent(incoming)
+                true
+            }
+            else -> false
+        }
+        if (consumed && intent === incoming) {
+            setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
         }
     }
 
@@ -1108,9 +1167,13 @@ class MainActivity : ComponentActivity() {
         runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "该域名" }
 
     companion object {
+        private const val PUBLIC_RULES_URL = "https://stoptracking.me/rules"
         private const val SOURCE_CLIPBOARD = "manual.clipboard"
         private const val SOURCE_SYSTEM_SHARE = "manual.system-share"
         private const val SOURCE_WEB_INTENT = "manual.web-intent"
+        private const val STATE_AUTO_READ_CLIPBOARD_ON_FOCUS =
+            "main.auto_read_clipboard_on_focus"
+        private const val STATE_FIRST_RUN_GUIDE_VISIBLE = "main.first_run_guide_visible"
     }
 }
 
@@ -1298,6 +1361,124 @@ private fun AccessibilityServiceCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(if (enabled) "管理无障碍服务" else "前往开启无障碍服务")
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun FirstRunGuideDialog(
+    guide: BackgroundRunGuide,
+    accessibilityEnabled: Boolean,
+    batteryOptimizationDisabled: Boolean,
+    onOpenAccessibilitySettings: () -> Unit,
+    onOpenManufacturerSettings: () -> Unit,
+    onOpenBatteryOptimization: () -> Unit,
+    onOpenRules: () -> Unit,
+    onComplete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onComplete,
+        title = { Text("首次使用引导") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("为了让自动净链更顺畅，建议先完成以下设置；这些设置都可以稍后在“设置”中处理。")
+
+                Text("1. 开启无障碍模式", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "开启后，应用可以在支持的来源 App 里辅助点击“复制链接”，自动完成链接转换，" +
+                        "无需你手动跳转到本应用。",
+                )
+                Text(
+                    if (accessibilityEnabled) "当前状态：已开启"
+                    else "当前状态：未开启",
+                    color = if (accessibilityEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                Button(
+                    onClick = onOpenAccessibilitySettings,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (accessibilityEnabled) "管理无障碍服务" else "前往开启无障碍服务")
+                }
+
+                Text("2. 允许后台运行", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "建议关闭 Android 电池优化，并在 ${guide.displayName} 的设置中允许自启动和后台运行，" +
+                        "减少应用被系统清理，避免无障碍服务失效。",
+                )
+                Text(
+                    if (batteryOptimizationDisabled) "Android 电池优化：已豁免"
+                    else "Android 电池优化：尚未豁免",
+                    color = if (batteryOptimizationDisabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                Button(
+                    onClick = onOpenManufacturerSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(guide.settingsButtonLabel)
+                }
+                OutlinedButton(
+                    onClick = onOpenBatteryOptimization,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("打开 Android 电池优化列表")
+                }
+
+                Text("3. 了解公开规则", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "本应用使用公开的规则 JSON 来识别不同 App 的分享链接。建议查看规则说明和公开规则链接，" +
+                        "了解规则来源、更新方式及支持范围。",
+                )
+                OutlinedButton(
+                    onClick = onOpenRules,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("查看 https://stoptracking.me/rules")
+                }
+
+                Text(
+                    "以上均为推荐设置，不会上传链接或无障碍界面内容；你可以随时在系统设置中调整。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onComplete) { Text("开始使用") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onComplete) { Text("稍后设置") }
+        },
+    )
+}
+
+@androidx.compose.runtime.Composable
+private fun FirstRunGuideSettingsCard(
+    onOpenGuide: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("首次使用引导", style = MaterialTheme.typography.titleMedium)
+            Text("重新查看无障碍服务、后台运行和公开规则的推荐说明。")
+            OutlinedButton(
+                onClick = onOpenGuide,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("重新查看首次使用引导")
             }
         }
     }
