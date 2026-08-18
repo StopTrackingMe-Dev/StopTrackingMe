@@ -163,6 +163,37 @@ class QrImagePipelineInstrumentedTest {
     }
 
     @Test
+    fun sharedOutputRemainsReadableForAFullCacheWindow() {
+        val storage = AndroidQrImageOutputStorage(context())
+        val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+        }
+        var outputFile: File? = null
+        try {
+            val draft = storage.writeDraft(bitmap, "image/png")
+            outputFile = draft.file
+            val expiredTimestamp =
+                System.currentTimeMillis() - QrCachePolicy.MAX_AGE_MILLIS - 60_000L
+            assertTrue(draft.file.setLastModified(expiredTimestamp))
+
+            val uri = storage.shareUri(draft.file)
+            val sharedTimestamp = draft.file.lastModified()
+
+            assertTrue(sharedTimestamp > expiredTimestamp)
+            storage.cleanupExpired(sharedTimestamp + QrCachePolicy.MAX_AGE_MILLIS - 1L)
+            assertTrue(draft.file.exists())
+            val firstByte = context().contentResolver.openInputStream(uri)?.use { it.read() } ?: -1
+            assertTrue(firstByte >= 0)
+
+            storage.cleanupExpired(sharedTimestamp + QrCachePolicy.MAX_AGE_MILLIS)
+            assertTrue(!draft.file.exists())
+        } finally {
+            bitmap.recycle()
+            outputFile?.let(storage::delete)
+        }
+    }
+
+    @Test
     fun rotatedTargetPassesEncodedOutputRescan() = runBlocking {
         verifyManualTarget(
             mimeType = "image/png",

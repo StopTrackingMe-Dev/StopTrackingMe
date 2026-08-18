@@ -81,6 +81,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class QrImageActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
@@ -92,6 +93,7 @@ class QrImageActivity : ComponentActivity() {
     private var state by mutableStateOf<QrImageProcessingState>(QrImageProcessingState.Scanning)
     private var pendingRuleChoice by mutableStateOf<PendingQrRuleChoice?>(null)
     private var fileActionBusy by mutableStateOf(false)
+    private var sharedOutputFile: File? = null
 
     private val requestLegacyWritePermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -148,7 +150,7 @@ class QrImageActivity : ComponentActivity() {
     private fun releaseOwnedImages() {
         (state as? QrImageProcessingState.Preview)?.result?.image?.let { image ->
             if (!image.bitmap.isRecycled) image.bitmap.recycle()
-            outputStorage.delete(image.file)
+            if (image.file != sharedOutputFile) outputStorage.delete(image.file)
         }
         if (state !is QrImageProcessingState.Scanning &&
             state !is QrImageProcessingState.Sanitizing
@@ -229,15 +231,18 @@ class QrImageActivity : ComponentActivity() {
 
     private fun shareCurrentImage() {
         val preview = state as? QrImageProcessingState.Preview ?: return
+        val image = preview.result.image
         runCatching {
-            val uri = outputStorage.shareUri(preview.result.image.file)
+            val uri = outputStorage.shareUri(image.file)
             startActivity(
                 ImageShareIntentFactory.createChooser(
                     uri,
-                    preview.result.image.outputMimeType,
+                    image.outputMimeType,
                 ),
             )
         }.onSuccess {
+            // The receiving app can read asynchronously after this Activity is destroyed.
+            sharedOutputFile = image.file
             UsageReporter.recordShare(this)
         }.onFailure { error ->
             updateActionMessage("无法打开系统分享：${safeError(error)}")

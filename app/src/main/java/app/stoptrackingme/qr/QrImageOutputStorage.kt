@@ -77,11 +77,19 @@ class AndroidQrImageOutputStorage(
         throw IllegalStateException("复查输出图片时内存不足")
     }
 
-    override fun shareUri(file: File): Uri = FileProvider.getUriForFile(
-        appContext,
-        "${appContext.packageName}.qr.fileprovider",
-        file,
-    )
+    override fun shareUri(file: File): Uri {
+        if (file.parentFile?.canonicalFile != cacheDirectory.canonicalFile || !file.isFile) {
+            throw IllegalArgumentException("只能分享应用生成的缓存图片")
+        }
+        if (!file.setLastModified(System.currentTimeMillis())) {
+            throw IllegalStateException("无法延长分享图片的缓存有效期")
+        }
+        return FileProvider.getUriForFile(
+            appContext,
+            "${appContext.packageName}.qr.fileprovider",
+            file,
+        )
+    }
 
     override fun saveToGallery(file: File, format: QrImageFormat): Uri =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
