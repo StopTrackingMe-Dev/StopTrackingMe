@@ -65,7 +65,6 @@ import app.stoptrackingme.link.UrlRuleMatcher
 import app.stoptrackingme.link.UrlRuleResolution
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
-import app.stoptrackingme.qr.AndroidQrImageOutputStorage
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import app.stoptrackingme.update.AppUpdateCard
@@ -77,9 +76,10 @@ import app.stoptrackingme.update.AppUpdateInstaller
 import app.stoptrackingme.update.AppUpdatePreferences
 import app.stoptrackingme.update.AppUpdateRelease
 import app.stoptrackingme.update.AppUpdateStatus
+import app.stoptrackingme.update.AppVariant
 import app.stoptrackingme.update.DownloadedAppUpdate
 import app.stoptrackingme.update.UpdateAvailableDialog
-import app.stoptrackingme.update.isNewerThan
+import app.stoptrackingme.update.isInstallableFor
 import app.stoptrackingme.usage.UsageReporter
 import app.stoptrackingme.usage.UsageReportingConsent
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +110,9 @@ class MainActivity : ComponentActivity() {
     private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
     private var updateStatus by mutableStateOf<AppUpdateStatus>(AppUpdateStatus.Idle)
     private var updateDialogRelease by mutableStateOf<AppUpdateRelease?>(null)
+    private val currentVariant = AppVariant.fromWireValue(BuildConfig.APP_VARIANT)
+        ?: error("未知的应用版本：${BuildConfig.APP_VARIANT}")
+    private var updateTargetVariant by mutableStateOf(currentVariant)
     private var cacheSnapshot by mutableStateOf<CacheSnapshot?>(null)
     private var cacheActionBusy by mutableStateOf(false)
     private var pendingInstallUpdate: DownloadedAppUpdate? = null
@@ -158,7 +161,7 @@ class MainActivity : ComponentActivity() {
         repository = RuleRepository.get(this)
         cacheManager = AppCacheManager(cacheDir)
         AppUpdateCache.clear(cacheDir)
-        AndroidQrImageOutputStorage(this).cleanupExpired()
+        QrFeature.cleanupExpired(this)
         QQShareActivity.cleanupExpiredThumbnails(cacheDir)
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
@@ -209,16 +212,18 @@ class MainActivity : ComponentActivity() {
                                 onReadClipboard = ::readClipboard,
                             )
 
-                            QrImageEntryCard(
-                                enabled = !busy,
-                                onPickImage = {
-                                    pickQrImage.launch(
-                                        PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
-                                        ),
-                                    )
-                                },
-                            )
+                            if (QrFeature.isAvailable) {
+                                QrImageEntryCard(
+                                    enabled = !busy,
+                                    onPickImage = {
+                                        pickQrImage.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                            ),
+                                        )
+                                    },
+                                )
+                            }
                         }
 
                         MainSection.RULES -> MainPage(modifier = Modifier.padding(padding)) {
@@ -350,9 +355,23 @@ class MainActivity : ComponentActivity() {
 
                             AppUpdateCard(
                                 status = updateStatus,
+                                currentVariant = currentVariant,
+                                targetVariant = updateTargetVariant,
                                 currentVersionName = BuildConfig.VERSION_NAME,
                                 currentVersionCode = BuildConfig.VERSION_CODE,
-                                onCheck = { checkForUpdates(interactive = true) },
+                                onSelectVariant = { variant ->
+                                    updateTargetVariant = variant
+                                    checkForUpdates(
+                                        interactive = true,
+                                        targetVariant = variant,
+                                    )
+                                },
+                                onCheck = {
+                                    checkForUpdates(
+                                        interactive = true,
+                                        targetVariant = updateTargetVariant,
+                                    )
+                                },
                                 onDownloadMirror = { release ->
                                     downloadUpdate(
                                         release = release,
@@ -459,7 +478,7 @@ class MainActivity : ComponentActivity() {
                         UpdateAvailableDialog(
                             release = release,
                             onDismiss = {
-                                AppUpdatePreferences.dismiss(this@MainActivity, release.tagName)
+                                AppUpdatePreferences.dismiss(this@MainActivity, release)
                                 updateDialogRelease = null
                             },
                             onDownloadMirror = {
@@ -529,7 +548,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         handleIncomingIntentWhenAllowed(intent)
-        checkForUpdates(interactive = false)
+        checkForUpdates(interactive = false, targetVariant = currentVariant)
         refreshCacheSnapshot()
     }
 
@@ -1001,7 +1020,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkForUpdates(interactive: Boolean) {
+    private fun checkForUpdates(
+        interactive: Boolean,
+        targetVariant: AppVariant,
+    ) {
         if (updateStatus is AppUpdateStatus.Checking ||
             updateStatus is AppUpdateStatus.Downloading
         ) {
@@ -1011,8 +1033,9 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
-                    val release = updateClient.fetchRelease()
-                    val available = release.isNewerThan(
+                    val release = updateClient.fetchRelease(targetVariant)
+                    val available = release.isInstallableFor(
+                        currentVariant = currentVariant,
                         installedVersionCode = BuildConfig.VERSION_CODE.toLong(),
                         installedVersionName = BuildConfig.VERSION_NAME,
                     )
@@ -1024,7 +1047,7 @@ class MainActivity : ComponentActivity() {
                     if (available) {
                         updateStatus = AppUpdateStatus.Available(release)
                         if (interactive ||
-                            !AppUpdatePreferences.isDismissed(this@MainActivity, release.tagName)
+                            !AppUpdatePreferences.isDismissed(this@MainActivity, release)
                         ) {
                             updateDialogRelease = release
                         }

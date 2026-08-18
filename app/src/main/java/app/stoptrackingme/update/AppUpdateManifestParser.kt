@@ -10,6 +10,7 @@ import java.util.Locale
 internal object AppUpdateManifestParser {
     fun parse(
         json: String,
+        requestedVariant: AppVariant = AppVariant.FULL,
         supportedAbis: List<String> = emptyList(),
     ): AppUpdateRelease {
         val root = try {
@@ -24,6 +25,9 @@ internal object AppUpdateManifestParser {
         val versionName = root.optionalString("versionName")
             ?: tagName.removePrefix("v").removePrefix("V")
         val versionCode = root.optionalLong("versionCode")
+        if (versionCode != null && versionCode <= 0) {
+            throw AppUpdateException("更新信息中的内部版本号无效")
+        }
         val releaseName = root.optionalString("name") ?: tagName
         val releasePageUrl = root.optionalString("html_url")
             ?: root.optionalString("releaseUrl")
@@ -31,13 +35,20 @@ internal object AppUpdateManifestParser {
             ?: root.optionalString("publishedAt")
         val prerelease = root.optionalBoolean("prerelease") ?: false
         val mirrorUrl = root.optionalString("mirrorUrl")
+        val rootVariant = root.declaredVariant("更新信息")
 
         requireShortValue(tagName, "发布标签", 100)
         requireShortValue(versionName, "版本号", 100)
         requireShortValue(releaseName, "发布名称", 200)
         releasePageUrl?.let { requireHttpsUrl(it, "发布页面") }
 
-        val asset = parseAsset(root, mirrorUrl, supportedAbis)
+        val asset = parseAsset(
+            root = root,
+            rootMirrorUrl = mirrorUrl,
+            rootVariant = rootVariant,
+            requestedVariant = requestedVariant,
+            supportedAbis = supportedAbis,
+        )
         return AppUpdateRelease(
             tagName = tagName,
             versionName = versionName,
@@ -47,22 +58,33 @@ internal object AppUpdateManifestParser {
             publishedAt = publishedAt,
             prerelease = prerelease,
             asset = asset,
+            variant = asset.variant,
         )
     }
 
     private fun parseAsset(
         root: JsonObject,
         rootMirrorUrl: String?,
+        rootVariant: AppVariant?,
+        requestedVariant: AppVariant,
         supportedAbis: List<String>,
     ): AppUpdateAsset {
         val selectedAsset = root.get("assets")
             ?.takeIf(JsonElement::isJsonArray)
             ?.asJsonArray
-            ?.preferredApk(supportedAbis)
+            ?.preferredApk(requestedVariant, rootVariant, supportedAbis)
         val source = selectedAsset?.value ?: root
 
         val fileName = source.apkFileName()
             ?: "app-release.apk"
+        val variant = selectedAsset?.variant
+            ?: source.declaredVariant("更新 APK")
+            ?: rootVariant
+            ?: AppVariant.fromApkFileName(fileName)
+            ?: AppVariant.FULL
+        if (variant != requestedVariant) {
+            throw AppUpdateException("更新信息没有 ${requestedVariant.displayName} APK")
+        }
         val githubUrl = source.optionalString("browser_download_url")
             ?: source.optionalString("githubUrl")
             ?: throw AppUpdateException("更新信息缺少 GitHub APK 下载地址")
@@ -77,8 +99,7 @@ internal object AppUpdateManifestParser {
         } else {
             source.targetAbi(fileName)
         }
-        val mirrorUrl = source.optionalString("mirrorUrl")
-            ?: rootMirrorUrl.takeIf { selectedAsset == null || targetAbi == null }
+        val mirrorUrl = source.optionalString("mirrorUrl") ?: rootMirrorUrl
 
         if (!fileName.lowercase(Locale.ROOT).endsWith(".apk") ||
             fileName.contains('/') || fileName.contains('\\')
@@ -98,17 +119,27 @@ internal object AppUpdateManifestParser {
             mirrorUrl = mirrorUrl,
             sizeBytes = sizeBytes,
             sha256 = sha256,
+            variant = variant,
         )
     }
 
-    private fun JsonArray.preferredApk(supportedAbis: List<String>): SelectedApk? {
+    private fun JsonArray.preferredApk(
+        requestedVariant: AppVariant,
+        rootVariant: AppVariant?,
+        supportedAbis: List<String>,
+    ): SelectedApk? {
         val candidates = mapNotNull { element ->
-            element.takeIf(JsonElement::isJsonObject)?.asJsonObject
-        }.filter { asset ->
-            asset.apkFileName()?.lowercase(Locale.ROOT)?.endsWith(".apk") == true
-        }.map { asset ->
-            val fileName = requireNotNull(asset.apkFileName())
-            val declaredAbi = asset.optionalString("abi")?.lowercase(Locale.ROOT)
+            val asset = element.takeIf(JsonElement::isJsonObject)?.asJsonObject
+                ?: return@mapNotNull null
+            val fileName = asset.apkFileName()
+                ?.takeIf { it.lowercase(Locale.ROOT).endsWith(".apk") }
+                ?: return@mapNotNull null
+            val variant = asset.declaredVariant("更新 APK")
+                ?: AppVariant.fromApkFileName(fileName)
+                ?: rootVariant
+                ?: AppVariant.FULL
+            if (variant != requestedVariant) return@mapNotNull null
+            val declaredAbi = asset.declaredAbi()
             SelectedApk(
                 value = asset,
                 targetAbi = when {
@@ -118,6 +149,7 @@ internal object AppUpdateManifestParser {
                 },
                 isUniversal = declaredAbi == UNIVERSAL_ABI ||
                     (declaredAbi == null && isUniversalFileName(fileName)),
+                variant = variant,
             )
         }
 
@@ -143,12 +175,31 @@ internal object AppUpdateManifestParser {
         optionalString("name") ?: optionalString("fileName")
 
     private fun JsonObject.targetAbi(fileName: String): String? {
-        val declaredAbi = optionalString("abi")?.lowercase(Locale.ROOT)
+        val declaredAbi = declaredAbi()
         return when {
             declaredAbi == UNIVERSAL_ABI -> null
             declaredAbi in APK_ABIS -> declaredAbi
             else -> abiFromFileName(fileName)
         }
+    }
+
+    private fun JsonObject.declaredVariant(label: String): AppVariant? {
+        if (!has("variant")) return null
+        val value = optionalString("variant")
+            ?: throw AppUpdateException("$label 的版本类型无效")
+        return AppVariant.fromWireValue(value)
+            ?: throw AppUpdateException("$label 的版本类型无效")
+    }
+
+    private fun JsonObject.declaredAbi(): String? {
+        if (!has("abi")) return null
+        val value = optionalString("abi")
+            ?.lowercase(Locale.ROOT)
+            ?: throw AppUpdateException("更新 APK 的 ABI 无效")
+        if (value != UNIVERSAL_ABI && value !in APK_ABIS) {
+            throw AppUpdateException("更新 APK 的 ABI 无效")
+        }
+        return value
     }
 
     private fun abiFromFileName(fileName: String): String? = APK_ABIS
@@ -213,6 +264,7 @@ internal object AppUpdateManifestParser {
         val value: JsonObject,
         val targetAbi: String?,
         val isUniversal: Boolean,
+        val variant: AppVariant,
     )
 
     private const val MIN_APK_BYTES = 1_024L

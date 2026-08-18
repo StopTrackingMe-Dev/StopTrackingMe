@@ -19,8 +19,10 @@ internal class AppUpdateClient(
     private val networkGuard: PublicNetworkGuard = PublicNetworkGuard(),
 ) {
     private val manifestUri = validatedManifestUri(manifestUrl)
+    private val currentVariant = AppVariant.fromWireValue(BuildConfig.APP_VARIANT)
+        ?: throw AppUpdateException("未知的应用版本：${BuildConfig.APP_VARIANT}")
 
-    fun fetchRelease(): AppUpdateRelease {
+    fun fetchRelease(targetVariant: AppVariant = currentVariant): AppUpdateRelease {
         var current = manifestUri
         repeat(MAX_REDIRECTS + 1) { hop ->
             networkGuard.requirePublic(current, MANIFEST_CONNECT_TIMEOUT_MS)
@@ -47,7 +49,11 @@ internal class AppUpdateClient(
                 }
                 val bytes = readLimited(connection, MAX_MANIFEST_BYTES)
                 val json = bytes.toString(Charsets.UTF_8)
-                return AppUpdateManifestParser.parse(json, supportedAbis)
+                return AppUpdateManifestParser.parse(
+                    json = json,
+                    requestedVariant = targetVariant,
+                    supportedAbis = supportedAbis,
+                )
             } catch (error: AppUpdateException) {
                 throw error
             } catch (error: Exception) {
@@ -220,10 +226,7 @@ internal class AppUpdateClient(
         preferredSource: AppUpdateDownloadSource,
         allowFallback: Boolean,
     ): List<DownloadCandidate> {
-        val mirrorUrl = release.asset.mirrorUrl
-            ?: defaultMirrorUrl.takeIf {
-                release.asset.targetAbi == null && it.isNotBlank()
-            }
+        val mirrorUrl = resolvedMirrorUrl(release.asset, defaultMirrorUrl)
         val mirror = mirrorUrl?.let {
             DownloadCandidate(AppUpdateDownloadSource.MIRROR, validatedDownloadUri(it))
         }
@@ -338,6 +341,46 @@ internal class AppUpdateClient(
         }
     }
 }
+
+internal fun mirrorUrlWithFileName(url: String, fileName: String): String {
+    val uri = try {
+        URI(url)
+    } catch (error: Exception) {
+        throw AppUpdateException("国内镜像地址无效", error)
+    }
+    if (fileName.isBlank() || fileName.contains('/') || fileName.contains('\\')) {
+        throw AppUpdateException("国内镜像 APK 文件名无效")
+    }
+    val scheme = uri.scheme ?: throw AppUpdateException("国内镜像地址缺少协议")
+    val rawAuthority = uri.rawAuthority ?: throw AppUpdateException("国内镜像地址缺少域名")
+    val rawPath = uri.rawPath ?: throw AppUpdateException("国内镜像地址缺少文件路径")
+    val slash = rawPath.lastIndexOf('/')
+    if (slash < 0 || slash == rawPath.lastIndex) {
+        throw AppUpdateException("国内镜像地址缺少文件名")
+    }
+    return try {
+        val encodedFileName = URI(null, null, "/$fileName", null).rawPath.removePrefix("/")
+        val result = buildString {
+            append(scheme)
+            append("://")
+            append(rawAuthority)
+            append(rawPath, 0, slash + 1)
+            append(encodedFileName)
+            uri.rawQuery?.let { append('?').append(it) }
+            uri.rawFragment?.let { append('#').append(it) }
+        }
+        URI(result)
+        result
+    } catch (error: Exception) {
+        throw AppUpdateException("国内镜像地址无法切换 APK 文件名", error)
+    }
+}
+
+internal fun resolvedMirrorUrl(
+    asset: AppUpdateAsset,
+    defaultMirrorUrl: String,
+): String? = (asset.mirrorUrl ?: defaultMirrorUrl.takeIf(String::isNotBlank))
+    ?.let { mirrorUrlWithFileName(it, asset.fileName) }
 
 internal object AppUpdateDownloadPolicy {
     private const val MIRROR_HOST = "1813680010.cdn.123clouddisk.com"

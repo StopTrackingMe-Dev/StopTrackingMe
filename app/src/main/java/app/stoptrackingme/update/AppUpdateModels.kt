@@ -2,6 +2,29 @@ package app.stoptrackingme.update
 
 import java.io.File
 
+internal enum class AppVariant(
+    val wireName: String,
+    val displayName: String,
+) {
+    MINIMAL("minimal", "Minimal 精简版"),
+    FULL("full", "Full 完整版"),
+    ;
+
+    companion object {
+        fun fromWireValue(value: String?): AppVariant? = entries.firstOrNull {
+            it.wireName.equals(value?.trim(), ignoreCase = true)
+        }
+
+        fun fromApkFileName(fileName: String): AppVariant? = when {
+            Regex("(^|[-_.])minimal($|[-_.])", RegexOption.IGNORE_CASE)
+                .containsMatchIn(fileName) -> MINIMAL
+            Regex("(^|[-_.])full($|[-_.])", RegexOption.IGNORE_CASE)
+                .containsMatchIn(fileName) -> FULL
+            else -> null
+        }
+    }
+}
+
 internal data class AppUpdateAsset(
     val fileName: String,
     val targetAbi: String?,
@@ -9,6 +32,7 @@ internal data class AppUpdateAsset(
     val mirrorUrl: String?,
     val sizeBytes: Long?,
     val sha256: String,
+    val variant: AppVariant = AppVariant.FULL,
 )
 
 internal data class AppUpdateRelease(
@@ -20,6 +44,7 @@ internal data class AppUpdateRelease(
     val publishedAt: String?,
     val prerelease: Boolean,
     val asset: AppUpdateAsset,
+    val variant: AppVariant = AppVariant.FULL,
 )
 
 internal enum class AppUpdateDownloadSource(

@@ -63,10 +63,10 @@ import app.stoptrackingme.qr.AndroidQrSourceImageDecoder
 import app.stoptrackingme.qr.DetectedQrCode
 import app.stoptrackingme.qr.LinkProcessorQrCleaner
 import app.stoptrackingme.qr.LoadedQrImage
-import app.stoptrackingme.qr.MlKitQrCodeScanner
 import app.stoptrackingme.qr.PerspectiveQrCodeComposer
 import app.stoptrackingme.qr.QrBounds
 import app.stoptrackingme.qr.QrCandidateResolver
+import app.stoptrackingme.qr.QrCodeScanner
 import app.stoptrackingme.qr.QrImageCandidate
 import app.stoptrackingme.qr.QrImageFormats
 import app.stoptrackingme.qr.QrImageOutputStorage
@@ -85,7 +85,7 @@ import java.io.File
 
 class QrImageActivity : ComponentActivity() {
     private lateinit var repository: RuleRepository
-    private lateinit var scanner: MlKitQrCodeScanner
+    private var scanner: QrCodeScanner? = null
     private lateinit var outputStorage: QrImageOutputStorage
     private lateinit var pipeline: QrImagePipeline
 
@@ -102,17 +102,26 @@ class QrImageActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        if (!QrFeature.isAvailable) {
+            setContent {
+                StopTrackingTheme {
+                    QrImageUnavailableScreen(onClose = ::finish)
+                }
+            }
+            return
+        }
         repository = RuleRepository.get(this)
-        scanner = MlKitQrCodeScanner()
+        val createdScanner = QrFeature.createScanner()
+        scanner = createdScanner
         outputStorage = AndroidQrImageOutputStorage(this)
         pipeline = QrImagePipeline(
-            scanner = scanner,
+            scanner = createdScanner,
             linkCleaner = LinkProcessorQrCleaner(),
             composer = PerspectiveQrCodeComposer(),
             outputStorage = outputStorage,
         )
         outputStorage.cleanupExpired()
-        enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
                 QrImageScreen(
@@ -143,7 +152,7 @@ class QrImageActivity : ComponentActivity() {
 
     override fun onDestroy() {
         releaseOwnedImages()
-        scanner.close()
+        scanner?.close()
         super.onDestroy()
     }
 
@@ -331,6 +340,27 @@ class QrImageActivity : ComponentActivity() {
 private data class PendingQrRuleChoice(
     val candidate: QrImageCandidate,
 )
+
+@Composable
+private fun QrImageUnavailableScreen(
+    onClose: () -> Unit,
+) {
+    Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("净化二维码图片", style = MaterialTheme.typography.headlineMedium)
+            Text("当前安装的是 Minimal 精简版，不包含二维码图片识别功能。请在设置中的应用更新里切换到 Full 完整版。")
+            Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+                Text("返回")
+            }
+        }
+    }
+}
 
 @Composable
 private fun QrImageScreen(

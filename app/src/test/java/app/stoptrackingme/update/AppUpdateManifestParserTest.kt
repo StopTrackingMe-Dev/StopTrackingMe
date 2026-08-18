@@ -225,6 +225,145 @@ class AppUpdateManifestParserTest {
     }
 
     @Test
+    fun selectsTheRequestedVariantBeforeChoosingAnAbi() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tag_name": "v2.0.0",
+              "versionCode": 20,
+              "mirrorUrl": "https://1813680010.cdn.123clouddisk.com/1813680010/s/StopTrackingMe/app-release.apk",
+              "assets": [
+                {
+                  "name": "app-full-universal-release.apk",
+                  "variant": "full",
+                  "size": 30000000,
+                  "digest": "sha256:${"a".repeat(64)}",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-full-universal-release.apk"
+                },
+                {
+                  "name": "app-minimal-universal-release.apk",
+                  "variant": "minimal",
+                  "size": 10000000,
+                  "digest": "sha256:${"b".repeat(64)}",
+                  "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-minimal-universal-release.apk"
+                }
+              ]
+            }
+            """.trimIndent(),
+            requestedVariant = AppVariant.MINIMAL,
+        )
+
+        assertEquals(AppVariant.MINIMAL, release.variant)
+        assertEquals("app-minimal-universal-release.apk", release.asset.fileName)
+        assertNull(release.asset.targetAbi)
+    }
+
+    @Test
+    fun doesNotFallBackToFullWhenMinimalAssetIsMissing() {
+        assertThrows(AppUpdateException::class.java) {
+            AppUpdateManifestParser.parse(
+                """
+                {
+                  "tag_name": "v2.0.0",
+                  "assets": [{
+                    "name": "app-full-universal-release.apk",
+                    "size": 30000000,
+                    "digest": "sha256:${"a".repeat(64)}",
+                    "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-full-universal-release.apk"
+                  }]
+                }
+                """.trimIndent(),
+                requestedVariant = AppVariant.MINIMAL,
+            )
+        }
+    }
+
+    @Test
+    fun rootVariantAndMirrorApplyToGenericAbiAssets() {
+        val release = AppUpdateManifestParser.parse(
+            """
+            {
+              "tagName": "v2.0.0",
+              "variant": "minimal",
+              "mirrorUrl": "https://mirror.example/releases/app-release.apk",
+              "assets": [{
+                "name": "app-arm64-v8a-release.apk",
+                "abi": "arm64-v8a",
+                "size": 10000000,
+                "digest": "sha256:${"a".repeat(64)}",
+                "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-arm64-v8a-release.apk"
+              }]
+            }
+            """.trimIndent(),
+            requestedVariant = AppVariant.MINIMAL,
+            supportedAbis = listOf("arm64-v8a"),
+        )
+
+        assertEquals(AppVariant.MINIMAL, release.variant)
+        assertEquals("arm64-v8a", release.asset.targetAbi)
+        assertEquals(
+            "https://mirror.example/releases/app-release.apk",
+            release.asset.mirrorUrl,
+        )
+    }
+
+    @Test
+    fun rejectsInvalidExplicitVariantOrAbi() {
+        val invalidVariant = """
+            {
+              "tag_name": "v2.0.0",
+              "assets": [{
+                "name": "app-full-universal-release.apk",
+                "variant": "lite",
+                "size": 10000000,
+                "digest": "sha256:${"a".repeat(64)}",
+                "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-full-universal-release.apk"
+              }]
+            }
+        """.trimIndent()
+        val invalidAbi = """
+            {
+              "tag_name": "v2.0.0",
+              "assets": [{
+                "name": "app-full-universal-release.apk",
+                "variant": "full",
+                "abi": "mips",
+                "size": 10000000,
+                "digest": "sha256:${"a".repeat(64)}",
+                "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-full-universal-release.apk"
+              }]
+            }
+        """.trimIndent()
+
+        assertThrows(AppUpdateException::class.java) {
+            AppUpdateManifestParser.parse(invalidVariant)
+        }
+        assertThrows(AppUpdateException::class.java) {
+            AppUpdateManifestParser.parse(invalidAbi)
+        }
+    }
+
+    @Test
+    fun rejectsNonPositiveVersionCode() {
+        assertThrows(AppUpdateException::class.java) {
+            AppUpdateManifestParser.parse(
+                """
+                {
+                  "tag_name": "v2.0.0",
+                  "versionCode": 0,
+                  "assets": [{
+                    "name": "app-release.apk",
+                    "size": 10000000,
+                    "digest": "sha256:${"a".repeat(64)}",
+                    "browser_download_url": "https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases/download/v2.0.0/app-release.apk"
+                  }]
+                }
+                """.trimIndent(),
+            )
+        }
+    }
+
+    @Test
     fun rejectsApkWithoutSha256() {
         assertThrows(AppUpdateException::class.java) {
             AppUpdateManifestParser.parse(

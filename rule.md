@@ -681,11 +681,11 @@ Bootstrap 只在即将执行首个配置请求时运行；单纯的默认 HTML �
 9. 外置规则变更后应先运行 Android 单元测试：
 
 ~~~powershell
-.\gradlew.bat testDebugUnitTest
+.\gradlew.bat :app:testMinimalDebugUnitTest :app:testFullDebugUnitTest
 ~~~
 
 测试夹具来自外置 `stoptracking-rules` 仓库。默认路径是主项目同级目录；若仓库位于其他位置，使用
-`./gradlew.bat -PrulesRepoDir=规则仓库路径 testDebugUnitTest` 指定。
+`./gradlew.bat -PrulesRepoDir=规则仓库路径 :app:testMinimalDebugUnitTest :app:testFullDebugUnitTest` 指定。
 
 规则加载失败时，优先检查：
 

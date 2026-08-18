@@ -36,6 +36,51 @@ class SemanticVersionTest {
         assertTrue(release.isNewerThan(8, "0.1.2-alpha"))
     }
 
+    @Test
+    fun allowsSameVersionWhenSwitchingVariant() {
+        val release = release(versionName = "0.1.3-alpha", versionCode = 9).copy(
+            variant = AppVariant.MINIMAL,
+        )
+
+        assertTrue(
+            release.isInstallableFor(
+                currentVariant = AppVariant.FULL,
+                installedVersionCode = 9,
+                installedVersionName = "0.1.3-alpha",
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsOlderVersionWhenSwitchingVariant() {
+        val release = release(versionName = "0.1.2-alpha", versionCode = 8).copy(
+            variant = AppVariant.MINIMAL,
+        )
+
+        assertFalse(
+            release.isInstallableFor(
+                currentVariant = AppVariant.FULL,
+                installedVersionCode = 9,
+                installedVersionName = "0.1.3-alpha",
+            ),
+        )
+    }
+
+    @Test
+    fun sameCodeSwitchRequiresTheSameDisplayVersion() {
+        val release = release(versionName = "0.1.3-alpha+other", versionCode = 9).copy(
+            variant = AppVariant.MINIMAL,
+        )
+
+        assertFalse(
+            release.isInstallableFor(
+                currentVariant = AppVariant.FULL,
+                installedVersionCode = 9,
+                installedVersionName = "0.1.3-alpha",
+            ),
+        )
+    }
+
     private fun version(value: String): SemanticVersion =
         requireNotNull(SemanticVersion.parse(value))
 

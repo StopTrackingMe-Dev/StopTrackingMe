@@ -37,6 +37,20 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "edition"
+    productFlavors {
+        create("minimal") {
+            dimension = "edition"
+            buildConfigField("String", "APP_VARIANT", "\"minimal\"")
+            manifestPlaceholders["appVariant"] = "minimal"
+        }
+        create("full") {
+            dimension = "edition"
+            buildConfigField("String", "APP_VARIANT", "\"full\"")
+            manifestPlaceholders["appVariant"] = "full"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -82,8 +96,8 @@ dependencies {
     implementation(files("libs/open_sdk_3.5.19_r9483ffc7_lite.jar"))
     implementation(libs.jsoup)
     implementation(libs.androidx.exifinterface)
-    implementation(libs.mlkit.barcode.scanning)
     implementation(libs.zxing.core)
+    add("fullImplementation", libs.mlkit.barcode.scanning)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

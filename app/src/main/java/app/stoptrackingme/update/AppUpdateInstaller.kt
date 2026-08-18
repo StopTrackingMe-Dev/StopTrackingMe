@@ -16,33 +16,37 @@ internal object AppUpdateInstaller {
         val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.packageManager.getPackageArchiveInfo(
                 update.file.absolutePath,
-                PackageManager.PackageInfoFlags.of(0),
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA.toLong()),
             )
         } else {
             @Suppress("DEPRECATION")
-            context.packageManager.getPackageArchiveInfo(update.file.absolutePath, 0)
+            context.packageManager.getPackageArchiveInfo(
+                update.file.absolutePath,
+                PackageManager.GET_META_DATA,
+            )
         } ?: throw AppUpdateException("下载文件不是有效的 Android 安装包")
 
-        if (packageInfo.packageName != context.packageName) {
-            throw AppUpdateException("下载 APK 的应用标识不匹配")
-        }
+        val archiveVariant = packageInfo.applicationInfo?.metaData
+            ?.getString(APP_VARIANT_META_DATA)
+            ?.let(AppVariant::fromWireValue)
+            ?: throw AppUpdateException("下载 APK 缺少版本类型标识")
         val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             packageInfo.longVersionCode
         } else {
             @Suppress("DEPRECATION")
             packageInfo.versionCode.toLong()
         }
-        if (archiveVersionCode <= BuildConfig.VERSION_CODE.toLong()) {
-            throw AppUpdateException("下载 APK 不是更高版本")
-        }
-        update.release.versionCode?.let { expected ->
-            if (archiveVersionCode != expected) {
-                throw AppUpdateException("下载 APK 的内部版本号与更新信息不一致")
-            }
-        }
-        if (packageInfo.versionName != update.release.versionName) {
-            throw AppUpdateException("下载 APK 的显示版本号与更新信息不一致")
-        }
+        validateArchiveMetadata(
+            archivePackageName = packageInfo.packageName,
+            archiveVariant = archiveVariant,
+            archiveVersionCode = archiveVersionCode,
+            archiveVersionName = packageInfo.versionName,
+            expectedPackageName = context.packageName,
+            currentVariant = currentVariant(),
+            currentVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            currentVersionName = BuildConfig.VERSION_NAME,
+            release = update.release,
+        )
     }
 
     fun canRequestInstall(context: Context): Boolean =
@@ -96,4 +100,55 @@ internal object AppUpdateInstaller {
         } else {
             0
         }
+
+    private fun currentVariant(): AppVariant =
+        AppVariant.fromWireValue(BuildConfig.APP_VARIANT)
+            ?: throw AppUpdateException("未知的应用版本：${BuildConfig.APP_VARIANT}")
+
+    private const val APP_VARIANT_META_DATA = "app.stoptrackingme.APP_VARIANT"
+}
+
+internal fun validateArchiveMetadata(
+    archivePackageName: String,
+    archiveVariant: AppVariant,
+    archiveVersionCode: Long,
+    archiveVersionName: String?,
+    expectedPackageName: String,
+    currentVariant: AppVariant,
+    currentVersionCode: Long,
+    currentVersionName: String,
+    release: AppUpdateRelease,
+) {
+    if (archivePackageName != expectedPackageName) {
+        throw AppUpdateException("下载 APK 的应用标识不匹配")
+    }
+    if (release.asset.variant != release.variant) {
+        throw AppUpdateException("更新信息中的版本类型不一致")
+    }
+    if (archiveVariant != release.variant) {
+        throw AppUpdateException("下载 APK 的版本类型与更新信息不一致")
+    }
+
+    val switchingVariant = archiveVariant != currentVariant
+    if (archiveVersionCode < currentVersionCode ||
+        (archiveVersionCode == currentVersionCode && !switchingVariant)
+    ) {
+        throw AppUpdateException(
+            if (switchingVariant) "下载 APK 版本过旧，不能切换到该版本类型"
+            else "下载 APK 不是更高版本",
+        )
+    }
+    if (archiveVersionCode == currentVersionCode &&
+        archiveVersionName != currentVersionName
+    ) {
+        throw AppUpdateException("同版本切换要求显示版本号一致")
+    }
+    release.versionCode?.let { expected ->
+        if (archiveVersionCode != expected) {
+            throw AppUpdateException("下载 APK 的内部版本号与更新信息不一致")
+        }
+    }
+    if (archiveVersionName != release.versionName) {
+        throw AppUpdateException("下载 APK 的显示版本号与更新信息不一致")
+    }
 }

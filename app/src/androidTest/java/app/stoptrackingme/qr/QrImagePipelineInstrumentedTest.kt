@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.stoptrackingme.QrFeature
 import app.stoptrackingme.link.UrlRuleCandidate
 import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.InstalledRule
@@ -16,6 +17,7 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -137,8 +139,9 @@ class QrImagePipelineInstrumentedTest {
 
     @Test
     fun generatedPngIsDetectedReplacedAndExactlyRescanned() = runBlocking {
+        assumeTrue("二维码识别只在 Full 版本测试", QrFeature.isAvailable)
         val source = posterWithQr(RAW_URL)
-        val scanner = MlKitQrCodeScanner()
+        val scanner = QrFeature.createScanner()
         val storage = AndroidQrImageOutputStorage(context())
         try {
             val pipeline = pipeline(scanner, storage)
@@ -253,10 +256,11 @@ class QrImagePipelineInstrumentedTest {
     }
 
     private suspend fun verifyManualTarget(mimeType: String, corners: List<QrPoint>) {
+        assumeTrue("二维码识别只在 Full 版本测试", QrFeature.isAvailable)
         val source = Bitmap.createBitmap(800, 800, Bitmap.Config.ARGB_8888).apply {
             eraseColor(Color.rgb(235, 235, 235))
         }
-        val scanner = MlKitQrCodeScanner()
+        val scanner = QrFeature.createScanner()
         val storage = AndroidQrImageOutputStorage(context())
         try {
             val candidate = QrImageCandidate(

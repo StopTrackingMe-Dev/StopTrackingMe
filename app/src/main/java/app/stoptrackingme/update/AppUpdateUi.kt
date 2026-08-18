@@ -20,8 +20,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun AppUpdateCard(
     status: AppUpdateStatus,
+    currentVariant: AppVariant,
+    targetVariant: AppVariant,
     currentVersionName: String,
     currentVersionCode: Int,
+    onSelectVariant: (AppVariant) -> Unit,
     onCheck: () -> Unit,
     onDownloadMirror: (AppUpdateRelease) -> Unit,
     onDownloadGithub: (AppUpdateRelease) -> Unit,
@@ -41,14 +44,57 @@ internal fun AppUpdateCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("应用更新", style = MaterialTheme.typography.titleMedium)
-            Text("当前版本：$currentVersionName（$currentVersionCode）")
+            Text(
+                "当前版本：${currentVariant.displayName} $currentVersionName（$currentVersionCode）",
+            )
+            if (currentVariant == AppVariant.MINIMAL) {
+                Text(
+                    "二维码图片净化仅包含在 Full 完整版中；可在这里选择 Full 并切换安装。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text("选择要检查或切换的安装包：")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AppVariant.entries.forEach { variant ->
+                    if (variant == targetVariant) {
+                        Button(
+                            onClick = { onSelectVariant(variant) },
+                            enabled = !working,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(variant.displayName)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onSelectVariant(variant) },
+                            enabled = !working,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(variant.displayName)
+                        }
+                    }
+                }
+            }
             when (status) {
                 AppUpdateStatus.Idle -> Text("更新信息由 stoptracking.me 提供。")
                 AppUpdateStatus.Checking -> ProgressMessage("正在检查更新…")
-                is AppUpdateStatus.UpToDate -> Text("已是最新版本：${status.release.tagName}")
+                is AppUpdateStatus.UpToDate -> Text(
+                    if (status.release.variant == currentVariant) {
+                        "已是最新版本：${status.release.tagName}"
+                    } else {
+                        "服务器上的${status.release.variant.displayName}版本较旧，不能安全切换。"
+                    },
+                )
                 is AppUpdateStatus.Available -> {
                     Text(
-                        "发现新版本：${status.release.tagName}",
+                        if (status.release.variant == currentVariant) {
+                            "发现新版本：${status.release.tagName}"
+                        } else {
+                            "可切换到${status.release.variant.displayName}：${status.release.tagName}"
+                        },
                         color = MaterialTheme.colorScheme.primary,
                     )
                     if (status.release.prerelease) {
@@ -84,7 +130,7 @@ internal fun AppUpdateCard(
                 enabled = !working,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("检查更新")
+                Text("检查${targetVariant.displayName}")
             }
 
             release?.let { available ->
@@ -135,9 +181,24 @@ internal fun UpdateAvailableDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("发现新版本 ${release.tagName}") },
+        title = {
+            Text(
+                if (release.variant == AppVariant.FULL) {
+                    "发现 Full 版本 ${release.tagName}"
+                } else {
+                    "发现 Minimal 版本 ${release.tagName}"
+                },
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (release.variant == AppVariant.FULL) {
+                        "将安装包含二维码图片净化功能的 Full 版本。"
+                    } else {
+                        "将安装不包含二维码图片净化功能的 Minimal 版本。"
+                    },
+                )
                 Text("默认使用国内镜像下载；镜像失败或校验不一致时会自动尝试 GitHub。")
                 Text("安装前会核对 APK 大小、SHA-256、应用标识和版本号。")
                 if (release.prerelease) {

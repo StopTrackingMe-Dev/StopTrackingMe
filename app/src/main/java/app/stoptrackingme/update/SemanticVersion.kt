@@ -66,3 +66,27 @@ internal fun AppUpdateRelease.isNewerThan(
         ?: throw AppUpdateException("当前版本号格式无效：$installedVersionName")
     return available > installed
 }
+
+internal fun AppUpdateRelease.isInstallableFor(
+    currentVariant: AppVariant,
+    installedVersionCode: Long,
+    installedVersionName: String,
+): Boolean {
+    if (variant == currentVariant) {
+        return isNewerThan(installedVersionCode, installedVersionName)
+    }
+
+    versionCode?.let { availableCode ->
+        return when {
+            availableCode > installedVersionCode -> true
+            availableCode < installedVersionCode -> false
+            else -> versionName == installedVersionName
+        }
+    }
+
+    val available = SemanticVersion.parse(versionName)
+        ?: throw AppUpdateException("发布版本号格式无效：$versionName")
+    val installed = SemanticVersion.parse(installedVersionName)
+        ?: throw AppUpdateException("当前版本号格式无效：$installedVersionName")
+    return available >= installed
+}
