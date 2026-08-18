@@ -24,3 +24,14 @@
 -keep class com.tencent.connect.** { *; }
 -keep class com.tencent.open.** { *; }
 -keep class com.tencent.tauth.** { *; }
+
+# The lite QQ SDK references OkHttp APIs only from optional code paths.
+-dontwarn okhttp3.**
+
+# ML Kit discovers Firebase component registrars by the class names stored in
+# manifest metadata, then creates them through their no-argument constructors.
+# firebase-components keeps the class names but not those constructors under
+# AGP 9/R8 full mode.
+-keep class * implements com.google.firebase.components.ComponentRegistrar {
+    public <init>();
+}
