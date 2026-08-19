@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="108" height="108">
+      <rect width="108" height="108" fill="#FFFFFF"/>
+      <g transform="translate(54,54) scale(0.23) translate(-256,-250)">
+        <path d="M170 248 C 198 210, 314 210, 342 248 C 314 286, 198 286, 170 248 Z" fill="#000000"/>
+        <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
+        <line x1="200" y1="310" x2="312" y2="186" stroke="#000000" stroke-width="21" stroke-linecap="round"/>
+      </g>
+    </mask>
+  </defs>
+  <g mask="url(#cut)">
+    <g transform="translate(54,54) scale(0.23) translate(-256,-250)">
+      <path d="M256 112 C 296 130 340 145 374 151 L 374 250 C 374 318 331 359 256 388 C 181 359 138 318 138 250 L 138 151 C 172 145 216 130 256 112 Z" fill="#FFFFFF"/>
+      <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
+    </g>
+  </g>
+</svg>
