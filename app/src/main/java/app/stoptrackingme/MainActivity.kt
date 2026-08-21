@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
@@ -125,8 +126,8 @@ class MainActivity : ComponentActivity() {
         }
 
     private val pickQrImage =
-        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            if (uri != null) openQrImage(uri)
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            parseQrImagePickerResult(result.resultCode, result.data)?.let(::openQrImage)
         }
 
     private val requestBrowserRole =
@@ -215,13 +216,7 @@ class MainActivity : ComponentActivity() {
                             if (QrFeature.isAvailable) {
                                 QrImageEntryCard(
                                     enabled = !busy,
-                                    onPickImage = {
-                                        pickQrImage.launch(
-                                            PickVisualMediaRequest(
-                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
-                                            ),
-                                        )
-                                    },
+                                    onPickImage = ::launchQrImagePicker,
                                 )
                             }
                         }
@@ -767,6 +762,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun launchQrImagePicker() {
+        runCatching {
+            pickQrImage.launch(createQrImagePickerIntent(this))
+        }.onFailure { error ->
+            operationMessage = "无法打开系统相册：${displayError(error)}"
+        }
+    }
+
     private fun handleIncomingIntent(incoming: Intent) {
         val consumed = when (incoming.action) {
             Intent.ACTION_VIEW -> {
@@ -1190,6 +1193,29 @@ class MainActivity : ComponentActivity() {
         runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "该域名" }
 
     companion object {
+        internal fun createQrImagePickerIntent(context: Context): Intent {
+            val photoPicker = ActivityResultContracts.PickVisualMedia()
+            val preferredIntent = photoPicker.createIntent(
+                context,
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+            )
+            if (preferredIntent.action != Intent.ACTION_OPEN_DOCUMENT &&
+                preferredIntent.action != Intent.ACTION_GET_CONTENT
+            ) {
+                return preferredIntent
+            }
+
+            // PickVisualMedia otherwise falls back to ACTION_OPEN_DOCUMENT. Use the media
+            // collection explicitly so older devices open their gallery instead of Files.
+            return Intent(Intent.ACTION_PICK).setDataAndType(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                "image/*",
+            )
+        }
+
+        internal fun parseQrImagePickerResult(resultCode: Int, data: Intent?): Uri? =
+            ActivityResultContracts.PickVisualMedia().parseResult(resultCode, data)
+
         private const val PUBLIC_RULES_URL = "https://stoptracking.me/rules"
         private const val SOURCE_CLIPBOARD = "manual.clipboard"
         private const val SOURCE_SYSTEM_SHARE = "manual.system-share"

@@ -1,11 +1,14 @@
 package app.stoptrackingme
 
-import android.content.ComponentName
+import android.app.Activity
+import android.content.ClipData
 import android.content.ClipDescription
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -60,6 +63,32 @@ class AppInstrumentedTest {
                 it.activityInfo.packageName == component.packageName &&
                     it.activityInfo.name == component.className
             },
+        )
+    }
+
+    @Test
+    fun qrImagePickerUsesPhotoPickerOrSystemGalleryInsteadOfFiles() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val intent = MainActivity.createQrImagePickerIntent(context)
+
+        assertEquals("image/*", intent.type)
+        assertTrue(intent.action != Intent.ACTION_OPEN_DOCUMENT)
+        assertTrue(intent.action != Intent.ACTION_GET_CONTENT)
+        if (intent.action == Intent.ACTION_PICK) {
+            assertEquals(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, intent.data)
+        }
+    }
+
+    @Test
+    fun qrImagePickerAcceptsPickerResultsReturnedThroughClipData() {
+        val uri = Uri.parse("content://app.stoptrackingme.test/selected-qr.png")
+        val result = Intent().apply {
+            clipData = ClipData.newRawUri("selected QR image", uri)
+        }
+
+        assertEquals(
+            uri,
+            MainActivity.parseQrImagePickerResult(Activity.RESULT_OK, result),
         )
     }
 
