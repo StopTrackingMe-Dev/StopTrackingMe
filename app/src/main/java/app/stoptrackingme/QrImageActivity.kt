@@ -245,8 +245,9 @@ class QrImageActivity : ComponentActivity() {
             val uri = outputStorage.shareUri(image.file)
             startActivity(
                 ImageShareIntentFactory.createChooser(
-                    uri,
-                    image.outputMimeType,
+                    imageUri = uri,
+                    mimeType = image.outputMimeType,
+                    fileName = image.file.name,
                 ),
             )
         }.onSuccess {

@@ -1,6 +1,7 @@
 package app.stoptrackingme
 
 import android.content.ComponentName
+import android.content.ClipDescription
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -145,7 +146,12 @@ class AppInstrumentedTest {
     @Test
     fun imageShareFactoryGrantsOnlyTemporaryReadAccessWithClipData() {
         val uri = Uri.parse("content://app.stoptrackingme.qr.fileprovider/qr_images/result.png")
-        val chooser = ImageShareIntentFactory.createChooser(uri, "image/png")
+        val fileName = "stoptracking_cleaned_qr.png"
+        val chooser = ImageShareIntentFactory.createChooser(
+            imageUri = uri,
+            mimeType = "image/png",
+            fileName = fileName,
+        )
         val send = if (Build.VERSION.SDK_INT >= 33) {
             chooser.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
         } else {
@@ -156,10 +162,28 @@ class AppInstrumentedTest {
         assertEquals(Intent.ACTION_CHOOSER, chooser.action)
         assertEquals(Intent.ACTION_SEND, send?.action)
         assertEquals("image/png", send?.type)
+        val stream = if (Build.VERSION.SDK_INT >= 33) {
+            send?.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            send?.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
+        assertEquals(uri, stream)
+        assertEquals(fileName, send?.getStringExtra(Intent.EXTRA_TITLE))
         assertEquals(uri, send?.clipData?.getItemAt(0)?.uri)
+        assertEquals(fileName, send?.clipData?.description?.label?.toString())
+        assertTrue(send?.clipData?.description?.hasMimeType("image/png") == true)
+        assertTrue(
+            send?.clipData?.description?.hasMimeType(ClipDescription.MIMETYPE_TEXT_URILIST) == false,
+        )
         assertTrue(
             ((send?.flags ?: 0) and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0,
         )
         assertEquals(0, (send?.flags ?: 0) and Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        assertEquals(uri, chooser.clipData?.getItemAt(0)?.uri)
+        assertTrue(
+            (chooser.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0,
+        )
+        assertEquals(0, chooser.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
     }
 }

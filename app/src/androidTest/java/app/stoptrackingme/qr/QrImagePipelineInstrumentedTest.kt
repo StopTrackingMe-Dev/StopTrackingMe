@@ -3,6 +3,7 @@ package app.stoptrackingme.qr
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.stoptrackingme.QrFeature
@@ -182,6 +183,27 @@ class QrImagePipelineInstrumentedTest {
             val uri = storage.shareUri(draft.file)
             val sharedTimestamp = draft.file.lastModified()
 
+            assertEquals("content", uri.scheme)
+            assertEquals("image/png", context().contentResolver.getType(uri))
+            context().contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(
+                    draft.file.name,
+                    cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)),
+                )
+                assertEquals(
+                    draft.file.length(),
+                    cursor.getLong(cursor.getColumnIndexOrThrow(OpenableColumns.SIZE)),
+                )
+            } ?: error("FileProvider 未返回图片元数据")
+            val provider = context().packageManager.resolveContentProvider(uri.authority!!, 0)
+            assertEquals(QrImageFileProvider::class.java.name, provider?.name)
             assertTrue(sharedTimestamp > expiredTimestamp)
             storage.cleanupExpired(sharedTimestamp + QrCachePolicy.MAX_AGE_MILLIS - 1L)
             assertTrue(draft.file.exists())

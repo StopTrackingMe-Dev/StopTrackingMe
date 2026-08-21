@@ -88,6 +88,7 @@ class AndroidQrImageOutputStorage(
             appContext,
             "${appContext.packageName}.qr.fileprovider",
             file,
+            file.name,
         )
     }
 
