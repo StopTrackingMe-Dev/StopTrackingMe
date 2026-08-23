@@ -1,45 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <linearGradient id="bgGrad" gradientUnits="userSpaceOnUse" x1="60" y1="60" x2="452" y2="452">
-      <stop offset="0" stop-color="#45E08C"/>
-      <stop offset="0.5" stop-color="#17C3A0"/>
-      <stop offset="1" stop-color="#0E8F86"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E88E5"/>
+      <stop offset="1" stop-color="#0D47A1"/>
     </linearGradient>
-    <linearGradient id="topLight" gradientUnits="userSpaceOnUse" x1="256" y1="24" x2="256" y2="300">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="shieldGrad" gradientUnits="userSpaceOnUse" x1="256" y1="110" x2="256" y2="392">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#E9FBF1"/>
-    </linearGradient>
-    <filter id="sh" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#05332D" flood-opacity="0.40"/>
-    </filter>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <rect width="512" height="512" fill="#FFFFFF"/>
-      <path d="M170 248 C 198 210, 314 210, 342 248 C 314 286, 198 286, 170 248 Z" fill="#000000"/>
-      <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
-      <line x1="200" y1="310" x2="312" y2="186" stroke="#000000" stroke-width="21" stroke-linecap="round"/>
-    </mask>
+    <radialGradient id="glow" cx="0.5" cy="0.3" r="0.7">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
-  <!-- squircle background -->
-  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#bgGrad)"/>
-  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#topLight)"/>
+  <!-- Background: trust-blue gradient, full bleed (platforms apply their own mask) -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
 
-  <!-- radar rings : anti-tracking aura -->
-  <circle cx="256" cy="256" r="196" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
-  <circle cx="256" cy="256" r="224" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2" stroke-dasharray="3 14" stroke-linecap="round"/>
+  <!-- Shield drop shadow -->
+  <path d="M512 240 L714 302 Q742 311 742 342 V540 C742 668 664 766 512 822 C360 766 282 668 282 540 V342 Q282 311 310 302 Z"
+        transform="translate(10 18)" fill="#031A47" opacity="0.28"/>
 
-  <!-- shield with eye-slash cut-outs -->
-  <g filter="url(#sh)" mask="url(#cut)">
-    <path d="M256 112 C 296 130 340 145 374 151 L 374 250 C 374 318 331 359 256 388 C 181 359 138 318 138 250 L 138 151 C 172 145 216 130 256 112 Z" fill="url(#shieldGrad)"/>
-    <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
-    <circle cx="268" cy="238" r="5.5" fill="url(#bgGrad)" opacity="0.85"/>
+  <!-- Shield -->
+  <path d="M512 240 L714 302 Q742 311 742 342 V540 C742 668 664 766 512 822 C360 766 282 668 282 540 V342 Q282 311 310 302 Z"
+        fill="#FFFFFF"/>
+
+  <!-- Severed chain link: tracking cut away from the URL -->
+  <g transform="translate(512 512) rotate(-45)">
+    <g fill="none" stroke="#0D47A1" stroke-width="36">
+      <rect x="-168" y="-56" width="172" height="112" rx="40"/>
+      <rect x="-4" y="-56" width="172" height="112" rx="40"/>
+    </g>
+    <!-- clean cut through the link -->
+    <rect x="-28" y="-120" width="56" height="240" fill="#FFFFFF"/>
   </g>
 
-  <!-- sparkles -->
-  <path d="M396 128 C 398.4 136.4, 399.6 137.6, 408 140 C 399.6 142.4, 398.4 143.6, 396 152 C 393.6 143.6, 392.4 142.4, 384 140 C 392.4 137.6, 393.6 136.4, 396 128 Z" fill="#FFFFFF" opacity="0.95"/>
-  <path d="M118 344 C 119.7 350, 120.5 350.8, 126.5 352.5 C 120.5 354.2, 119.7 355, 118 361 C 116.3 355, 115.5 354.2, 109.5 352.5 C 115.5 350.8, 116.3 350, 118 344 Z" fill="#FFFFFF" opacity="0.55"/>
+  <!-- sparkle: freshly cleaned -->
+  <path d="M384 328 C387 344 396 353 412 356 C396 359 387 368 384 384 C381 368 372 359 356 356 C372 353 381 344 384 328 Z"
+        fill="#64B5F6"/>
 </svg>
