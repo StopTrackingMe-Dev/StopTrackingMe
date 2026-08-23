@@ -1,38 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    StopTrackingMe · 勿追踪 — master icon artwork
+    Concept: a protective shield guarding against a surveillance eye,
+    crossed out by a prohibition slash ("stop tracking me").
+    Source of truth: app/src/main/res/drawable/ic_launcher_*.xml (108dp grid, scaled to 1024).
+  -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1E88E5"/>
-      <stop offset="1" stop-color="#0D47A1"/>
+    <linearGradient id="bg" x1="113.8" y1="75.9" x2="910.2" y2="966.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1D2A49"/>
+      <stop offset="1" stop-color="#0A1020"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.3" r="0.7">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
-      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
-  <!-- Background: trust-blue gradient, full bleed (platforms apply their own mask) -->
+  <!-- Background: full-bleed square, no transparency, no rounded corners
+       (platforms apply their own masks) -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
-  <rect width="1024" height="1024" fill="url(#glow)"/>
 
-  <!-- Shield drop shadow -->
-  <path d="M512 240 L714 302 Q742 311 742 342 V540 C742 668 664 766 512 822 C360 766 282 668 282 540 V342 Q282 311 310 302 Z"
-        transform="translate(10 18)" fill="#031A47" opacity="0.28"/>
+  <!-- Shield: privacy protection -->
+  <path fill="#B7F4E5"
+        d="M512,165.9c82.5,57.9 168.8,82.5 260.7,99.6v211.5c0,173.5 -99.6,308.1 -260.7,381.2c-161.2,-73 -260.7,-207.7 -260.7,-381.2V265.4c92,-17.1 178.3,-41.7 260.7,-99.6Z"/>
 
-  <!-- Shield -->
-  <path d="M512 240 L714 302 Q742 311 742 342 V540 C742 668 664 766 512 822 C360 766 282 668 282 540 V342 Q282 311 310 302 Z"
-        fill="#FFFFFF"/>
+  <!-- Eye: tracking / surveillance being watched -->
+  <path fill="#111A30"
+        d="M331.9,497.8C381.3,414.3 442.8,369.8 512,369.8s130.9,44.6 180.1,128C642.9,581.3 581.3,626.1 512,626.1s-130.9,-44.6 -180.1,-128Z"/>
+  <circle cx="512" cy="497.8" r="71.1" fill="#5DE2C4"/>
+  <circle cx="512" cy="497.8" r="28.4" fill="#111A30"/>
 
-  <!-- Severed chain link: tracking cut away from the URL -->
-  <g transform="translate(512 512) rotate(-45)">
-    <g fill="none" stroke="#0D47A1" stroke-width="36">
-      <rect x="-168" y="-56" width="172" height="112" rx="40"/>
-      <rect x="-4" y="-56" width="172" height="112" rx="40"/>
-    </g>
-    <!-- clean cut through the link -->
-    <rect x="-28" y="-120" width="56" height="240" fill="#FFFFFF"/>
-  </g>
-
-  <!-- sparkle: freshly cleaned -->
-  <path d="M384 328 C387 344 396 353 412 356 C396 359 387 368 384 384 C381 368 372 359 356 356 C372 353 381 344 384 328 Z"
-        fill="#64B5F6"/>
+  <!-- Prohibition slash: white halo + red core -->
+  <path d="M289.2,734.8L734.8,289.2" fill="none" stroke="#F2FFFC" stroke-width="123.3" stroke-linecap="round"/>
+  <path d="M289.2,734.8L734.8,289.2" fill="none" stroke="#FF5E6D" stroke-width="75.9" stroke-linecap="round"/>
 </svg>
