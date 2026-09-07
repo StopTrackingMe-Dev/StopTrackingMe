@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" alt="StopTrackingMe Logo" width="100" height="100" />
+  <img src="artwork/stoptrackingme-icon-108.png" alt="StopTrackingMe Logo" width="100" height="100" />
 </p>
 
 <h1 align="center">StopTrackingMe · 勿追踪</h1>
