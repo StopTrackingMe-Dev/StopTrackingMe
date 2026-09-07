@@ -14,6 +14,7 @@ import android.graphics.Rect
 import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -53,6 +54,8 @@ import app.stoptrackingme.usage.UsageReporter
 import java.util.UUID
 
 class ShareAccessibilityService : AccessibilityService() {
+    private var systemConnected = false
+    private var listenerReady = false
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var rules: RuleRepository
     private val fallbackPanelLatch = HashSet<String>()
@@ -84,6 +87,9 @@ class ShareAccessibilityService : AccessibilityService() {
     private val serviceConfigurationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
+                Intent.ACTION_USER_UNLOCKED,
+                BootReceiver.ACTION_RECOVER,
+                -> initializeAfterUnlock()
                 RuleRepository.ACTION_CATALOG_CHANGED,
                 ServiceStatus.ACTION_CHANGED,
                 -> applyAccessibilityEventScope()
@@ -93,6 +99,17 @@ class ShareAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        systemConnected = true
+        listenerReady = false
+        registerServiceConfigurationReceiver()
+        initializeAfterUnlock()
+    }
+
+    private fun initializeAfterUnlock() {
+        if (!systemConnected || listenerReady ||
+            !getSystemService(UserManager::class.java).isUserUnlocked
+        ) return
+        handler.removeCallbacksAndMessages(null)
         clearContentDiscoveryWindow()
         appliedEventScope = null
         rules = RuleRepository.get(this)
@@ -106,6 +123,10 @@ class ShareAccessibilityService : AccessibilityService() {
         overlayController = ShareOverlayController(this, overlayActionListener)
         ShareOverlayCoordinator.attach(overlayEventListener)
         registerServiceConfigurationReceiver()
+        fallbackPanelLatch.clear()
+        scheduledScanSessions.clear()
+        listenerReady = true
+        ServiceStatus.setConnected(this, true)
         val previous = AutomationRuntime.current()
         if (previous.stage == AutomationStage.SHOW_RESULT && previous.sessionId != null) {
             val restored =
@@ -126,6 +147,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!listenerReady) return
         event ?: return
         val eventPackage = event.packageName?.toString().orEmpty()
         if (eventPackage.isBlank() || eventPackage == packageName) return
@@ -281,6 +303,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        if (!listenerReady) return
         clearContentDiscoveryWindow()
         awaitingPanelSeenSessionId = null
         cancelSystemShareLaunch()
@@ -295,7 +318,19 @@ class ShareAccessibilityService : AccessibilityService() {
         ServiceStatus.update(this, "服务已中断，本次自动化已终止", AutomationStage.IDLE)
     }
 
+    override fun onUnbind(intent: Intent?): Boolean {
+        onInterrupt()
+        handler.removeCallbacksAndMessages(null)
+        systemConnected = false
+        listenerReady = false
+        ServiceStatus.setConnected(this, false)
+        return super.onUnbind(intent)
+    }
+
     override fun onDestroy() {
+        systemConnected = false
+        listenerReady = false
+        ServiceStatus.setConnected(this, false)
         clearContentDiscoveryWindow()
         handler.removeCallbacksAndMessages(null)
         awaitingPanelSeenSessionId = null
@@ -322,6 +357,8 @@ class ShareAccessibilityService : AccessibilityService() {
             IntentFilter().apply {
                 addAction(RuleRepository.ACTION_CATALOG_CHANGED)
                 addAction(ServiceStatus.ACTION_CHANGED)
+                addAction(Intent.ACTION_USER_UNLOCKED)
+                addAction(BootReceiver.ACTION_RECOVER)
             },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
@@ -357,6 +394,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     private fun applyAccessibilityEventScope() {
+        if (!listenerReady) return
         if (!::rules.isInitialized) return
         val snapshot = AutomationRuntime.current()
         val overlayResultActive = ::overlayController.isInitialized &&

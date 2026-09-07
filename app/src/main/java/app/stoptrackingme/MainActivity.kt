@@ -1,6 +1,5 @@
 package app.stoptrackingme
 
-import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.role.RoleManager
 import android.content.BroadcastReceiver
 import android.content.ClipboardManager
@@ -12,7 +11,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
-import android.view.accessibility.AccessibilityManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -657,13 +655,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshState() {
-        val manager = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
-        serviceEnabled = manager
-            .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-            .any { it.resolveInfo.serviceInfo.packageName == packageName }
-        serviceState = getSharedPreferences(ServiceStatus.PREFERENCES, MODE_PRIVATE)
-            .getString(ServiceStatus.KEY_MESSAGE, "尚未收到服务状态")
-            .orEmpty()
+        serviceEnabled = ServiceStatus.isEnabled(this)
+        serviceState = when {
+            !serviceEnabled -> "尚未授权或授权已关闭，请在系统设置中开启无障碍服务。"
+            !ServiceStatus.connected -> "已授权，服务尚未连接。若解锁后仍未恢复，请在设置页检查自启动和电池限制；必要时关闭再开启无障碍服务。"
+            else -> getSharedPreferences(ServiceStatus.PREFERENCES, MODE_PRIVATE)
+                .getString(ServiceStatus.KEY_MESSAGE, "服务已连接")
+                .orEmpty()
+        }
     }
 
     private fun refreshBatteryOptimizationState() {
@@ -1400,7 +1399,7 @@ private fun AccessibilityServiceCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                if (enabled) "无障碍服务：已开启" else "无障碍服务：未开启",
+                if (enabled) "无障碍服务：已授权" else "无障碍服务：未授权",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(status)
@@ -1563,6 +1562,8 @@ private fun BackgroundRunSettingsCard(
                     "Android 电池优化：当前未豁免，锁屏后系统可能限制后台运行或无障碍服务。"
                 },
             )
+            Text("重启后自动恢复：首次开启无障碍后，由系统保存授权并重新连接；首次解锁后恢复分享监听，无需手动打开本应用。")
+            Text("若厂商清理后台或关闭授权，应用无法自行重新授权。请允许自启动、取消电池限制；仍未连接时再关闭并重新开启无障碍。")
             Text("请按以下步骤允许本应用在后台运行：")
             guide.manualSteps.forEachIndexed { index, step ->
                 Text("${index + 1}. $step")
