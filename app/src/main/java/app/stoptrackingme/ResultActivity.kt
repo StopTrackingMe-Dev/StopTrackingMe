@@ -148,6 +148,7 @@ class ResultActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        weChatConsentDialog?.dismiss()
         if (isFinishing && ::sessionId.isInitialized) {
             ShareSessionStore.clear(sessionId)
             AutomationRuntime.reset(sessionId)
@@ -241,7 +242,22 @@ class ResultActivity : ComponentActivity() {
         }
     }
 
+    private var weChatConsentDialog: android.app.AlertDialog? = null
+
     private fun openWeChatShare(destination: WeChatShare.Destination) {
+        if (!WeChatSdkConsent.isGranted(this)) {
+            if (weChatConsentDialog?.isShowing == true) return
+            weChatConsentDialog = showShareSdkConsentDialog(
+                context = this,
+                sdk = ShareSdk.WECHAT,
+                onAgree = {
+                    WeChatSdkConsent.grant(this)
+                    openWeChatShare(destination)
+                },
+                onDecline = { openMessage = "未启用微信 SDK，已取消分享" },
+            )
+            return
+        }
         val current = ShareSessionStore.get(sessionId) ?: return
         val result = current.result ?: return
         val cleanedUrl = result.cleanedUrl ?: return
@@ -270,6 +286,7 @@ class ResultActivity : ComponentActivity() {
                 destination = destination,
             )
         ) {
+            WeChatShare.Result.CONSENT_REQUIRED -> "微信 SDK 授权已撤回，请重新分享。"
             WeChatShare.Result.REQUEST_SENT -> {
                 UsageReporter.recordShare(this)
                 null

@@ -1,7 +1,6 @@
 package app.stoptrackingme
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -100,48 +99,22 @@ class QQShareActivity : Activity() {
     }
 
     private fun showConsentDialog() {
-        val dialog = AlertDialog.Builder(this)
-            .setTitle("启用 QQ 分享")
-            .setMessage(
-                "QQ 分享由腾讯 QQ 互联 SDK 提供。启用后，SDK 会获取设备型号并检查 QQ/TIM " +
-                    "是否安装；分享时会把标题、摘要、净化链接和封面交给 QQ。你可以随时在" +
-                    "应用首页撤回授权。",
-            )
-            .setPositiveButton("同意并继续") { _, _ ->
+        showShareSdkConsentDialog(
+            context = this,
+            sdk = ShareSdk.QQ,
+            onAgree = {
                 QQSdkConsent.grant(this)
                 startQQShare()
-            }
-            .setNegativeButton("取消") { _, _ ->
-                finishWith(QQShareOutcome.CANCELLED, "未启用 QQ SDK，已取消分享")
-            }
-            .setNeutralButton("查看隐私说明", null)
-            .setOnCancelListener {
-                finishWith(QQShareOutcome.CANCELLED, "未启用 QQ SDK，已取消分享")
-            }
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(::openPrivacyPolicy)
-        }
-        dialog.show()
-    }
-
-    private fun openPrivacyPolicy(@Suppress("UNUSED_PARAMETER") view: android.view.View) {
-        val chooser = ExternalLinkIntentFactory.createChooser(
-            context = this,
-            url = QQSdkConsent.PRIVACY_POLICY_URL,
-            title = "查看 QQ 互联 SDK 隐私说明",
+            },
+            onDecline = { finishWith(QQShareOutcome.CANCELLED, "未启用 QQ SDK，已取消分享") },
         )
-        if (chooser == null) {
-            Toast.makeText(this, "没有可打开隐私说明的浏览器", Toast.LENGTH_SHORT).show()
-        } else {
-            runCatching { startActivity(chooser) }
-                .onFailure {
-                    Toast.makeText(this, "无法打开 QQ SDK 隐私说明", Toast.LENGTH_SHORT).show()
-                }
-        }
     }
 
     private fun startQQShare() {
+        if (!QQSdkConsent.isGranted(this)) {
+            showConsentDialog()
+            return
+        }
         val launchError = runCatching {
             Tencent.setIsPermissionGranted(true, Build.MODEL)
             val instance = Tencent.createInstance(

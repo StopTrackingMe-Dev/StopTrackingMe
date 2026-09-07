@@ -303,6 +303,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        weChatConsentDialog?.dismiss()
         if (!listenerReady) return
         clearContentDiscoveryWindow()
         awaitingPanelSeenSessionId = null
@@ -319,6 +320,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        weChatConsentDialog?.dismiss()
         onInterrupt()
         handler.removeCallbacksAndMessages(null)
         systemConnected = false
@@ -328,6 +330,7 @@ class ShareAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        weChatConsentDialog?.dismiss()
         systemConnected = false
         listenerReady = false
         ServiceStatus.setConnected(this, false)
@@ -1182,6 +1185,8 @@ class ShareAccessibilityService : AccessibilityService() {
         }, launchDelay)
     }
 
+    private var weChatConsentDialog: android.app.AlertDialog? = null
+
     private fun openOverlayWeChat(sessionId: String, destination: WeChatShare.Destination) {
         if (pendingWeChat != null ||
             pendingQQSessionId != null ||
@@ -1189,6 +1194,20 @@ class ShareAccessibilityService : AccessibilityService() {
             pendingResultPageSessionId != null ||
             overlayController.activeSessionId != sessionId
         ) {
+            return
+        }
+        if (!WeChatSdkConsent.isGranted(this)) {
+            if (weChatConsentDialog?.isShowing == true) return
+            weChatConsentDialog = showShareSdkConsentDialog(
+                context = this,
+                sdk = ShareSdk.WECHAT,
+                overlay = true,
+                onAgree = {
+                    WeChatSdkConsent.grant(this)
+                    openOverlayWeChat(sessionId, destination)
+                },
+                onDecline = { overlayController.updateStatus(sessionId, "未启用微信 SDK，可以选择其他分享方式") },
+            )
             return
         }
         val session = ShareSessionStore.get(sessionId) ?: return
@@ -1208,6 +1227,9 @@ class ShareAccessibilityService : AccessibilityService() {
                 transaction = transaction,
             )
         ) {
+            WeChatShare.Result.CONSENT_REQUIRED -> {
+                overlayController.updateStatus(sessionId, "微信 SDK 授权已撤回，请重新分享")
+            }
             WeChatShare.Result.REQUEST_SENT -> {
                 UsageReporter.recordShare(this)
                 pendingWeChat = PendingWeChat(sessionId, transaction)

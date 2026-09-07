@@ -15,6 +15,7 @@ object WeChatShare {
     }
 
     enum class Result {
+        CONSENT_REQUIRED,
         REQUEST_SENT,
         WECHAT_NOT_INSTALLED,
         REQUEST_REJECTED,
@@ -29,6 +30,7 @@ object WeChatShare {
         destination: Destination,
         transaction: String? = null,
     ): Result {
+        if (!WeChatSdkConsent.isGranted(context)) return Result.CONSENT_REQUIRED
         require(url.isNotBlank()) { "分享 URL 不能为空" }
 
         val api = WXAPIFactory.createWXAPI(context.applicationContext, APP_ID, true)

@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private var firstRunGuideVisible by mutableStateOf(false)
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
     private var qqSdkConsentGranted by mutableStateOf(false)
+    private var weChatSdkConsentGranted by mutableStateOf(false)
     private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)
     private var catalog by mutableStateOf(RuleCatalog(emptyList(), emptyList(), emptyList()))
     private var copyTriggerModes by mutableStateOf<Map<String, CopyTriggerMode>>(emptyMap())
@@ -165,6 +166,7 @@ class MainActivity : ComponentActivity() {
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
+        weChatSdkConsentGranted = WeChatSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
         refreshBatteryOptimizationState()
         firstRunGuideVisible = savedInstanceState
@@ -406,7 +408,8 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
 
-                            QQSdkPrivacyCard(
+                            ShareSdkPrivacyCard(
+                                sdkName = "QQ 互联 SDK",
                                 consentGranted = qqSdkConsentGranted,
                                 onOpenPolicy = {
                                     openExternalLink(
@@ -419,6 +422,19 @@ class MainActivity : ComponentActivity() {
                                     qqSdkConsentGranted = false
                                     operationMessage =
                                         "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
+                                },
+                            )
+
+                            ShareSdkPrivacyCard(
+                                sdkName = "微信 OpenSDK",
+                                consentGranted = weChatSdkConsentGranted,
+                                onOpenPolicy = {
+                                    openExternalLink(WeChatSdkConsent.PRIVACY_POLICY_URL, "查看微信 OpenSDK 隐私说明")
+                                },
+                                onRevoke = {
+                                    WeChatSdkConsent.revoke(this@MainActivity)
+                                    weChatSdkConsentGranted = false
+                                    operationMessage = "已撤回微信 SDK 授权；下次分享前会重新征求同意"
                                 },
                             )
 
@@ -584,6 +600,7 @@ class MainActivity : ComponentActivity() {
         refreshSubscriptionsIfNeeded()
         resultPresentationMode = ResultPresentationPreferences.get(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
+        weChatSdkConsentGranted = WeChatSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
         UsageReporter.flush(this)
         refreshState()
@@ -1785,7 +1802,8 @@ private fun UsageReportingConsentDialog(
 }
 
 @androidx.compose.runtime.Composable
-private fun QQSdkPrivacyCard(
+private fun ShareSdkPrivacyCard(
+    sdkName: String,
     consentGranted: Boolean,
     onOpenPolicy: () -> Unit,
     onRevoke: () -> Unit,
@@ -1795,20 +1813,20 @@ private fun QQSdkPrivacyCard(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("QQ 分享隐私", style = MaterialTheme.typography.titleMedium)
+            Text("$sdkName 分享隐私", style = MaterialTheme.typography.titleMedium)
             Text(
                 if (consentGranted) {
-                    "QQ 互联 SDK 已获授权，仅在你主动选择 QQ 分享时使用。"
+                    "$sdkName 已获授权，仅在你主动选择对应分享功能时使用。"
                 } else {
-                    "QQ 互联 SDK 尚未启用；首次使用 QQ 分享时会先说明并征求同意。"
+                    "$sdkName 尚未启用；首次使用对应分享功能时会先说明并征求同意。"
                 },
             )
             OutlinedButton(onClick = onOpenPolicy) {
-                Text("查看 QQ SDK 隐私说明")
+                Text("查看 $sdkName 隐私说明")
             }
             if (consentGranted) {
                 OutlinedButton(onClick = onRevoke) {
-                    Text("撤回 QQ SDK 授权")
+                    Text("撤回 $sdkName 授权")
                 }
             }
         }

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import app.stoptrackingme.WeChatSdkConsent
 import app.stoptrackingme.WeChatShare
 import app.stoptrackingme.overlay.ShareOverlayCoordinator
 import app.stoptrackingme.overlay.ShareOverlayEvent
@@ -19,14 +20,18 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!WeChatSdkConsent.isGranted(this)) {
+            closeCallbackTask()
+            return
+        }
         api = WXAPIFactory.createWXAPI(this, WeChatShare.APP_ID, false)
-        if (!api.handleIntent(intent, this)) closeCallbackTask()
+        if (!WeChatSdkConsent.isGranted(this) || !::api.isInitialized || !api.handleIntent(intent, this)) closeCallbackTask()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (!api.handleIntent(intent, this)) closeCallbackTask()
+        if (!WeChatSdkConsent.isGranted(this) || !::api.isInitialized || !api.handleIntent(intent, this)) closeCallbackTask()
     }
 
     override fun onReq(req: BaseReq) = Unit
