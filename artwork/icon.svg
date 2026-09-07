@@ -1,45 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="512" height="512" viewBox="0 0 108 108"
+     role="img" aria-labelledby="icon-title icon-description">
+  <title id="icon-title">StopTrackingMe · 勿追踪</title>
+  <desc id="icon-description">对称的浅色链环与中央薄荷绿橡皮擦组成主体，底部短线和圆点提示擦除痕迹，象征去除分享链接中的追踪参数。</desc>
+
   <defs>
-    <linearGradient id="bgGrad" gradientUnits="userSpaceOnUse" x1="60" y1="60" x2="452" y2="452">
-      <stop offset="0" stop-color="#45E08C"/>
-      <stop offset="0.5" stop-color="#17C3A0"/>
-      <stop offset="1" stop-color="#0E8F86"/>
+    <linearGradient id="background-color" x1="0" y1="0" x2="108" y2="108"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#155B57"/>
+      <stop offset="1" stop-color="#082F3B"/>
     </linearGradient>
-    <linearGradient id="topLight" gradientUnits="userSpaceOnUse" x1="256" y1="24" x2="256" y2="300">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="shieldGrad" gradientUnits="userSpaceOnUse" x1="256" y1="110" x2="256" y2="392">
-      <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#E9FBF1"/>
-    </linearGradient>
-    <filter id="sh" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#05332D" flood-opacity="0.40"/>
-    </filter>
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <rect width="512" height="512" fill="#FFFFFF"/>
-      <path d="M170 248 C 198 210, 314 210, 342 248 C 314 286, 198 286, 170 248 Z" fill="#000000"/>
-      <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
-      <line x1="200" y1="310" x2="312" y2="186" stroke="#000000" stroke-width="21" stroke-linecap="round"/>
-    </mask>
   </defs>
 
-  <!-- squircle background -->
-  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#bgGrad)"/>
-  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#topLight)"/>
-
-  <!-- radar rings : anti-tracking aura -->
-  <circle cx="256" cy="256" r="196" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="2"/>
-  <circle cx="256" cy="256" r="224" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2" stroke-dasharray="3 14" stroke-linecap="round"/>
-
-  <!-- shield with eye-slash cut-outs -->
-  <g filter="url(#sh)" mask="url(#cut)">
-    <path d="M256 112 C 296 130 340 145 374 151 L 374 250 C 374 318 331 359 256 388 C 181 359 138 318 138 250 L 138 151 C 172 145 216 130 256 112 Z" fill="url(#shieldGrad)"/>
-    <circle cx="256" cy="248" r="34" fill="#FFFFFF"/>
-    <circle cx="268" cy="238" r="5.5" fill="url(#bgGrad)" opacity="0.85"/>
+  <!-- Full-bleed background; the Android launcher supplies the outer mask. -->
+  <g id="background">
+    <path fill="url(#background-color)" d="M0 0H108V108H0Z"/>
   </g>
 
-  <!-- sparkles -->
-  <path d="M396 128 C 398.4 136.4, 399.6 137.6, 408 140 C 399.6 142.4, 398.4 143.6, 396 152 C 393.6 143.6, 392.4 142.4, 384 140 C 392.4 137.6, 393.6 136.4, 396 128 Z" fill="#FFFFFF" opacity="0.95"/>
-  <path d="M118 344 C 119.7 350, 120.5 350.8, 126.5 352.5 C 120.5 354.2, 119.7 355, 118 361 C 116.3 355, 115.5 354.2, 109.5 352.5 C 115.5 350.8, 116.3 350, 118 344 Z" fill="#FFFFFF" opacity="0.55"/>
+  <!-- Keep the complete mark inside the central 66 dp safe circle. -->
+  <g id="foreground">
+    <g id="link-eraser" transform="translate(54 53) rotate(-45)">
+      <g id="link-loops" fill="none" stroke="#F1FFF8" stroke-width="7.2"
+         stroke-linecap="round">
+        <path d="M-8-13H-12A13 13 0 0 0-12 13H-8"/>
+        <path d="M8-13H12A13 13 0 0 1 12 13H8"/>
+      </g>
+      <g id="eraser">
+        <rect id="eraser-sleeve" x="-11.5" y="-5.5" width="23" height="11"
+              rx="3" fill="#A0EDCD"/>
+        <path id="eraser-tip" fill="#F1FFF8"
+              d="M-8.5-5.5H-3V5.5H-8.5Q-11.5 5.5-11.5 2.5V-2.5Q-11.5-5.5-8.5-5.5Z"/>
+        <path d="M-3-4V4" fill="none" stroke="#155B57"
+              stroke-width="1.6"/>
+      </g>
+    </g>
+    <!-- Small erase marks keep the action visible beside the symmetric link. -->
+    <g id="erase-marks">
+      <path d="M58 76H65" fill="none" stroke="#A0EDCD"
+            stroke-width="2.7" stroke-linecap="round"/>
+      <circle cx="70" cy="76" r="1.4" fill="#A0EDCD"/>
+    </g>
+  </g>
 </svg>
