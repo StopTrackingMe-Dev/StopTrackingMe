@@ -245,14 +245,6 @@ class ShareAccessibilityService : AccessibilityService() {
 
         val installed = when (val resolution = rules.resolveActiveRule(eventPackage)) {
             is ActiveRuleResolution.Active -> resolution.installed
-            is ActiveRuleResolution.Conflict -> {
-                ServiceStatus.update(this, "这个应用有多条可用规则，请到「规则」页选择一条")
-                return
-            }
-            is ActiveRuleResolution.InvalidSelection -> {
-                ServiceStatus.update(this, "之前选择的规则已不可用，请到「规则」页重新选择")
-                return
-            }
             ActiveRuleResolution.NoRule -> return
         }
         if (AutomationSafety.isSensitivePackage(eventPackage)) return

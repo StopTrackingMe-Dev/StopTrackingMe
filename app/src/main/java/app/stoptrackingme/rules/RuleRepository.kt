@@ -14,9 +14,12 @@ import java.time.LocalDate
 import java.util.Locale
 
 data class RuleCatalog(
+    /** Installed rules ordered by source priority (highest first). */
     val installedRules: List<InstalledRule>,
     val loadErrors: List<String>,
     val subscriptions: List<String>,
+    /** Rule sources ordered by priority (highest first). */
+    val sources: List<RuleSource> = emptyList(),
 )
 
 data class SubscriptionRefreshResult(
@@ -27,9 +30,12 @@ data class SubscriptionRefreshResult(
 
 sealed interface ActiveRuleResolution {
     data object NoRule : ActiveRuleResolution
-    data class Active(val installed: InstalledRule) : ActiveRuleResolution
-    data class Conflict(val candidates: List<InstalledRule>) : ActiveRuleResolution
-    data class InvalidSelection(val candidates: List<InstalledRule>) : ActiveRuleResolution
+
+    /** [pinned] is true when the user picked this rule instead of relying on source priority. */
+    data class Active(
+        val installed: InstalledRule,
+        val pinned: Boolean = false,
+    ) : ActiveRuleResolution
 }
 
 object RuleSelection {
@@ -48,6 +54,10 @@ object RuleSelection {
         }
     }
 
+    /**
+     * [rules] must already be ordered by source priority. A pinned rule wins while it is still
+     * compatible; otherwise the highest-priority compatible rule is used.
+     */
     fun resolve(
         packageName: String,
         versionCode: Long?,
@@ -56,20 +66,36 @@ object RuleSelection {
     ): ActiveRuleResolution {
         val candidates = compatible(packageName, versionCode, rules)
         if (candidates.isEmpty()) return ActiveRuleResolution.NoRule
-        if (selectedKey != null) {
-            val selected = candidates.singleOrNull { it.key == selectedKey }
-            return if (selected != null) {
-                ActiveRuleResolution.Active(selected)
-            } else {
-                ActiveRuleResolution.InvalidSelection(candidates)
-            }
+        candidates.firstOrNull { it.key == selectedKey }?.let {
+            return ActiveRuleResolution.Active(it, pinned = true)
         }
-        return if (candidates.size == 1) {
-            ActiveRuleResolution.Active(candidates.single())
-        } else {
-            ActiveRuleResolution.Conflict(candidates)
-        }
+        return ActiveRuleResolution.Active(candidates.first())
     }
+
+    /** Orders rules by the position of their source in [sources]; unknown sources go last. */
+    fun sortByPriority(rules: List<InstalledRule>, sources: List<RuleSource>): List<InstalledRule> {
+        val rank = sources.withIndex().associate { (index, source) -> source to index }
+        return rules.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<InstalledRule>> { rank[it.value.rule.source] ?: Int.MAX_VALUE }
+                    .thenBy { it.index },
+            )
+            .map { it.value }
+    }
+
+    /**
+     * Merges the saved priority order with the sources that currently exist. Sources missing
+     * from the saved order (newly added) are appended, subscriptions before local imports.
+     */
+    fun orderSources(saved: List<String>, present: List<RuleSource>): List<RuleSource> {
+        val byId = present.associateBy(::sourceId)
+        val ordered = saved.mapNotNull(byId::get).distinct()
+        val remaining = present.filter { it !in ordered }
+            .sortedBy { if (it.kind == RuleSourceKind.REMOTE) 0 else 1 }
+        return ordered + remaining
+    }
+
+    fun sourceId(source: RuleSource): String = "${source.kind.name}:${source.reference}"
 }
 
 class RuleRepository private constructor(
@@ -107,14 +133,16 @@ class RuleRepository private constructor(
             }
             loadRemoteRules(subscriptions, installed, errors)
 
+            val presentSources = subscriptions.map { RuleSource(RuleSourceKind.REMOTE, it) } +
+                installed.map { it.rule.source }
+                    .filter { it.kind == RuleSourceKind.LOCAL }
+                    .distinct()
+            val sources = RuleSelection.orderSources(savedSourceOrder(), presentSources)
             catalog = RuleCatalog(
-                installedRules = installed.sortedWith(
-                    compareBy<InstalledRule> { it.rule.target.packageName }
-                        .thenBy { it.rule.displayName }
-                        .thenBy { it.key },
-                ),
+                installedRules = RuleSelection.sortByPriority(installed, sources),
                 loadErrors = errors,
                 subscriptions = subscriptions,
+                sources = sources,
             )
             catalog
         }
@@ -152,6 +180,43 @@ class RuleRepository private constructor(
         if (matching.none { it.key == key }) throw IllegalArgumentException("所选规则不属于目标应用")
         preferences.edit { putString(selectionKey(packageName), key) }
     }
+
+    /** Returns the app to automatic selection by source priority. */
+    fun clearActiveRule(packageName: String) {
+        preferences.edit { remove(selectionKey(packageName)) }
+    }
+
+    /**
+     * Rules in the order used for links that are not tied to an app (clipboard, share sheet,
+     * QR codes): each app's pinned rule first, then source priority.
+     */
+    fun rulesInPriorityOrder(): List<InstalledRule> {
+        val pinned = catalog.installedRules.mapNotNullTo(mutableSetOf()) { installed ->
+            installed.key.takeIf { selectedRuleKey(installed.rule.target.packageName) == it }
+        }
+        return catalog.installedRules.sortedBy { if (it.key in pinned) 0 else 1 }
+    }
+
+    /** Moves [source] one step up ([delta] < 0) or down ([delta] > 0) in priority. */
+    fun moveSource(source: RuleSource, delta: Int): Unit = synchronized(lock) {
+        val order = catalog.sources.toMutableList()
+        val from = order.indexOf(source)
+        if (from < 0) return@synchronized
+        val to = (from + delta).coerceIn(0, order.lastIndex)
+        if (to == from) return@synchronized
+        order.add(to, order.removeAt(from))
+        preferences.edit {
+            putString(KEY_SOURCE_ORDER, order.joinToString("\n", transform = RuleSelection::sourceId))
+        }
+        reload()
+        Unit
+    }
+
+    private fun savedSourceOrder(): List<String> =
+        preferences.getString(KEY_SOURCE_ORDER, null)
+            ?.split('\n')
+            ?.filter(String::isNotBlank)
+            .orEmpty()
 
     fun importLocal(input: InputStream): RuleBundle = synchronized(lock) {
         val bytes = input.use(::readBounded)
@@ -432,6 +497,7 @@ class RuleRepository private constructor(
         private const val KEY_SUBSCRIPTIONS = "subscriptions"
         private const val KEY_LAST_AUTO_REFRESH_DATE = "last_auto_refresh_date"
         private const val KEY_ACTIVE_PREFIX = "active."
+        private const val KEY_SOURCE_ORDER = "source_order"
         private const val RULE_DIRECTORY = "rules"
         private const val LOCAL_DIRECTORY = "local"
         private const val REMOTE_DIRECTORY = "remote"

@@ -2,13 +2,14 @@ package app.stoptrackingme.rules
 
 import app.stoptrackingme.TestFixtures
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RuleSelectionTest {
     @Test
-    fun conflictPausesUntilOneRuleIsSelected() {
+    fun highestPrioritySourceWinsUntilUserPinsARule() {
         val base = TestFixtures.builtInRule()
         val first = InstalledRule("first", base)
         val second = InstalledRule(
@@ -16,17 +17,23 @@ class RuleSelectionTest {
             base.copy(id = "second", source = RuleSource(RuleSourceKind.LOCAL, "second.json")),
         )
 
-        assertTrue(
-            RuleSelection.resolve(base.target.packageName, 100, listOf(first, second), null) is
-                ActiveRuleResolution.Conflict,
-        )
-        val selected = RuleSelection.resolve(
+        val automatic = RuleSelection.resolve(
+            base.target.packageName,
+            100,
+            listOf(first, second),
+            null,
+        ) as ActiveRuleResolution.Active
+        assertSame(first, automatic.installed)
+        assertFalse(automatic.pinned)
+
+        val pinned = RuleSelection.resolve(
             base.target.packageName,
             100,
             listOf(first, second),
             "second",
         ) as ActiveRuleResolution.Active
-        assertSame(second, selected.installed)
+        assertSame(second, pinned.installed)
+        assertTrue(pinned.pinned)
     }
 
     @Test
@@ -64,7 +71,7 @@ class RuleSelectionTest {
     }
 
     @Test
-    fun staleExplicitSelectionPausesInsteadOfSilentlyFallingBack() {
+    fun staleSelectionFallsBackToSourcePriority() {
         val base = TestFixtures.builtInRule()
         val remaining = InstalledRule("remaining", base)
 
@@ -73,9 +80,10 @@ class RuleSelectionTest {
             1,
             listOf(remaining),
             "missing-selected-rule",
-        )
+        ) as ActiveRuleResolution.Active
 
-        assertTrue(result is ActiveRuleResolution.InvalidSelection)
+        assertSame(remaining, result.installed)
+        assertFalse(result.pinned)
     }
 
     @Test

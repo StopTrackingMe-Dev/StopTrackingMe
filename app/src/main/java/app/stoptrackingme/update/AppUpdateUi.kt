@@ -52,7 +52,7 @@ internal fun AppUpdateCard(
         subtitle = "当前：${currentVariant.displayName} $currentVersionName",
     ) {
         if (currentVariant == AppVariant.MINIMAL) {
-            HintText("二维码图片净化只在完整版中提供，可在下方切换到完整版。")
+            HintText("完整版才支持二维码净化")
         }
         ChoiceGroup {
             AppVariant.entries.forEach { variant ->
@@ -165,7 +165,7 @@ internal fun UpdateAvailableDialog(
                         "将安装${release.variant.displayName}（不含二维码图片净化）。"
                     },
                 )
-                HintText("下载后会自动校验安装包，确保安全可靠。")
+                HintText("下载后会自动校验安装包")
                 if (release.prerelease) {
                     HintText("这是测试版，可能不够稳定。")
                 }

@@ -46,7 +46,7 @@ class UrlRuleMatcherTest {
     }
 
     @Test
-    fun overlappingRulesRequireExplicitChoice() {
+    fun overlappingRulesUseFirstRuleInPriorityOrder() {
         val base = TestFixtures.builtInRule("bilibili")
         val other = base.copy(
             id = "other",
@@ -56,8 +56,8 @@ class UrlRuleMatcherTest {
         val result = UrlRuleMatcher.resolve(
             "https://b23.tv/example",
             listOf(InstalledRule("one", base), InstalledRule("two", other)),
-        ) as UrlRuleResolution.Conflict
+        ) as UrlRuleResolution.Active
 
-        assertEquals(listOf("one", "two"), result.candidates.map { it.installed.key })
+        assertEquals("one", result.candidate.installed.key)
     }
 }

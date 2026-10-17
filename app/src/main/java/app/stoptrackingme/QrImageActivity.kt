@@ -186,7 +186,7 @@ class QrImageActivity : ComponentActivity() {
                 }
                 val candidates = QrCandidateResolver.resolve(
                     detections,
-                    repository.currentCatalog().installedRules,
+                    repository.rulesInPriorityOrder(),
                 )
                 state = QrImageProcessingState.Selection(candidates)
                 if (candidates.size == 1) selectCandidate(candidates.single())
@@ -355,7 +355,7 @@ private fun QrImageUnavailableScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("净化二维码图片", style = MaterialTheme.typography.headlineMedium)
-            Text("二维码图片净化只在完整版中提供。可在「设置 › 应用更新」中切换到完整版。")
+            Text("完整版才支持二维码净化，可在设置中切换")
             Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
                 Text("返回")
             }
@@ -394,7 +394,7 @@ private fun QrImageScreen(
                 is QrImageProcessingState.Selection -> {
                     Text(
                         if (state.candidates.size > 1) {
-                            "找到 ${state.candidates.size} 个二维码，请点选要替换的一个。"
+                            "找到 ${state.candidates.size} 个二维码，请选择一个"
                         } else {
                             "请确认要替换的二维码。"
                         },
@@ -615,7 +615,7 @@ private fun PreviewContent(
 ) {
     val result = state.result
     val preview = remember(result.image.bitmap) { result.image.bitmap.asImageBitmap() }
-    Text("新二维码已验证可正常扫描。原图不会被修改，新图片也不含拍摄信息等元数据。")
+    Text("新二维码已验证可扫描，原图不受影响")
     Image(
         bitmap = preview,
         contentDescription = "替换后的二维码图片",
@@ -675,7 +675,7 @@ private fun DetailCard(label: String, value: String) {
 @Composable
 private fun PrivacyAttributionNotice() {
     Text(
-        "识别和生成图片都在手机上完成，只有展开短链接时才会联网。去除追踪参数能减少被追踪，但平台仍可能通过内容编号或 IP 地址等方式识别来源。",
+        "图片在本机处理，仅展开短链时联网",
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.bodySmall,
     )

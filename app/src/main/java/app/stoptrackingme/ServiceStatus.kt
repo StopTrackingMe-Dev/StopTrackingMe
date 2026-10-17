@@ -32,7 +32,7 @@ object ServiceStatus {
     const val PREFERENCES = "service_state"
     const val KEY_MESSAGE = "message"
     const val ACTION_CHANGED = "app.stoptrackingme.STATE_CHANGED"
-    const val READY_MESSAGE = "已就绪，在支持的应用中点分享即可自动净化"
+    const val READY_MESSAGE = "点分享时会自动净化"
 
     fun update(context: Context, message: String, stage: AutomationStage? = null) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit {

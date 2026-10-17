@@ -16,7 +16,6 @@ object QrCandidateResolver {
             val resolution = normalizedUrl?.let { UrlRuleMatcher.resolve(it, rules) }
         ) {
             is UrlRuleResolution.Active -> listOf(resolution.candidate)
-            is UrlRuleResolution.Conflict -> resolution.candidates
             else -> emptyList()
         }
         QrImageCandidate(detection, candidates)

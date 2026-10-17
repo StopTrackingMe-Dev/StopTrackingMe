@@ -233,7 +233,7 @@ class ResultActivity : ComponentActivity() {
                 if (ShareSessionStore.get(requestedSessionId)?.id != requestedSessionId) return@withContext
                 sharePreview = loaded.getOrElse { fallback }
                 previewMessage = if (loaded.isFailure) {
-                    previewFailureMessage(loaded.exceptionOrNull()!!) + " 将使用默认卡片分享。"
+                    previewFailureMessage(loaded.exceptionOrNull()!!)
                 } else {
                     null
                 }
@@ -415,7 +415,7 @@ private fun ResultContent(
             subtitle = if (result.removedParameters.isNotEmpty()) {
                 "已去除 ${result.removedParameters.size} 个追踪参数"
             } else {
-                "这个链接没有发现需要去除的追踪参数"
+                "没有发现追踪参数"
             },
             tint = MaterialTheme.colorScheme.primary,
         )
@@ -579,33 +579,33 @@ private fun ResultContent(
     ) {
         Text("完成")
     }
-    HintText("关闭后不会保留本次链接。")
+    HintText("关闭后不保留本次链接")
 }
 
 internal fun previewFailureMessage(error: Throwable): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
     if (causes.any { it is PreviewAccessBlockedException }) {
-        return "网页设置了访问限制，无法生成卡片预览。"
+        return "网页限制访问，已改用默认卡片"
     }
     if (causes.any { it is PreviewMetadataUnavailableException }) {
-        return "网页没有提供标题、摘要或封面，无法生成卡片预览。"
+        return "网页无标题和封面，已改用默认卡片"
     }
     val tooLarge = causes.filterIsInstance<PreviewResourceTooLargeException>().firstOrNull()
     if (tooLarge != null) {
         val limitMiB = tooLarge.maxBytes / (1024 * 1024)
-        return "网页内容超过 $limitMiB MB，无法生成卡片预览。"
+        return "网页超过 $limitMiB MB，已改用默认卡片"
     }
     val http = causes.filterIsInstance<PreviewHttpException>().firstOrNull()
     if (http != null) {
-        return "网页暂时无法访问（错误 ${http.statusCode}），无法生成卡片预览。"
+        return "网页无法访问（${http.statusCode}），已改用默认卡片"
     }
     if (causes.any { it is SocketTimeoutException }) {
-        return "网页加载超时，可稍后重试。"
+        return "网页加载超时，已改用默认卡片"
     }
     if (causes.any { it is NetworkResolutionException }) {
-        return "无法连接到网页，请检查网络后重试。"
+        return "无法连接网页，已改用默认卡片"
     }
-    return "暂时无法读取网页信息，可稍后重试。"
+    return "无法读取网页，已改用默认卡片"
 }
 
 @androidx.compose.runtime.Composable

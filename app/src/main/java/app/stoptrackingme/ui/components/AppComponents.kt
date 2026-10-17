@@ -38,19 +38,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.stoptrackingme.R
 
-/** Large page title with an optional one-line explanation. */
+/** Page title with an optional one-line explanation. */
 @Composable
 fun PageHeader(
     title: String,
     subtitle: String? = null,
-    leading: (@Composable () -> Unit)? = null,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-    ) {
-        leading?.invoke()
+    Row(modifier = Modifier.padding(top = 4.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 title,
@@ -238,19 +232,26 @@ fun QuickActionCard(
         onClick = onClick,
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 140.dp)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
             IconBadge(
                 icon = icon,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 container = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                size = 48,
             )
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
             )
         }
     }

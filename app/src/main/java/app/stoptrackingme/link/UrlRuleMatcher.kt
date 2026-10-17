@@ -15,10 +15,12 @@ sealed interface UrlRuleResolution {
     data object UrlNotFound : UrlRuleResolution
     data class Unsupported(val url: String) : UrlRuleResolution
     data class Active(val candidate: UrlRuleCandidate) : UrlRuleResolution
-    data class Conflict(val candidates: List<UrlRuleCandidate>) : UrlRuleResolution
 }
 
-/** Selects a cleaning rule without relying on an accessibility event's source package. */
+/**
+ * Selects a cleaning rule without relying on an accessibility event's source package.
+ * [rules] are expected in priority order; the first matching rule wins.
+ */
 object UrlRuleMatcher {
     fun resolve(sourceText: String, rules: List<InstalledRule>): UrlRuleResolution {
         if (sourceText.isBlank()) return UrlRuleResolution.EmptyInput
@@ -40,13 +42,11 @@ object UrlRuleMatcher {
             } else {
                 null
             }
-        }.distinctBy { it.installed.key }
-
-        return when (candidates.size) {
-            0 -> UrlRuleResolution.Unsupported(genericUrl)
-            1 -> UrlRuleResolution.Active(candidates.single())
-            else -> UrlRuleResolution.Conflict(candidates)
         }
+
+        return candidates.firstOrNull()
+            ?.let(UrlRuleResolution::Active)
+            ?: UrlRuleResolution.Unsupported(genericUrl)
     }
 
     private fun webHost(value: String): String? = try {
