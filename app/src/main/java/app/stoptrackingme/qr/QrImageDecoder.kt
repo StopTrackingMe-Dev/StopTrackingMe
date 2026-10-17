@@ -20,10 +20,10 @@ class AndroidQrSourceImageDecoder(
         val width = boundsOptions.outWidth
         val height = boundsOptions.outHeight
         if (width <= 0 || height <= 0) {
-            throw QrImageDecodeException("无法读取图片尺寸，文件可能已损坏")
+            throw QrImageDecodeException("无法读取这张图片，文件可能已损坏")
         }
         val format = QrImageFormats.fromMimeType(boundsOptions.outMimeType)
-            ?: throw QrImageDecodeException("首版仅支持 PNG 和 JPEG 图片")
+            ?: throw QrImageDecodeException("目前只支持 PNG 和 JPEG 图片")
         if (width > MAXIMUM_EDGE_PIXELS || height > MAXIMUM_EDGE_PIXELS) {
             throw QrImageDecodeException("图片任一边不能超过 $MAXIMUM_EDGE_PIXELS 像素，请先缩小图片")
         }

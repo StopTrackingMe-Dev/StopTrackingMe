@@ -37,7 +37,7 @@ class PerspectiveQrCodeComposer(
         targetCorners: List<QrPoint>,
         cleanedUrl: String,
     ): QrComposeResult {
-        if (!bitmap.isMutable) return QrComposeResult.Failure("图片不是可编辑格式")
+        if (!bitmap.isMutable) return QrComposeResult.Failure("这张图片无法编辑")
         val geometry = when (
             val result = QrGeometry.validate(targetCorners, bitmap.width, bitmap.height)
         ) {
@@ -57,12 +57,12 @@ class PerspectiveQrCodeComposer(
                 ),
             )
         } catch (_: Exception) {
-            return QrComposeResult.Failure("净化后的链接过长，无法生成可靠二维码")
+            return QrComposeResult.Failure("链接太长，无法生成可靠的二维码")
         }
         val modulePixels = QrGeometry.modulePixelSize(geometry, encoded.width)
         if (modulePixels < QrGeometry.MINIMUM_MODULE_PIXELS) {
             return QrComposeResult.Failure(
-                "净化后的链接使二维码过密，每模块不足 3 像素",
+                "二维码在图片中太小，替换后可能无法扫描",
             )
         }
 
@@ -78,7 +78,7 @@ class PerspectiveQrCodeComposer(
         val destination = geometry.corners.flatMap { listOf(it.x, it.y) }.toFloatArray()
         val transform = Matrix()
         if (!transform.setPolyToPoly(source, 0, destination, 0, 4)) {
-            return QrComposeResult.Failure("无法建立二维码透视映射")
+            return QrComposeResult.Failure("无法确定二维码的位置和角度")
         }
 
         val quietZoneCorners = floatArrayOf(
@@ -89,7 +89,7 @@ class PerspectiveQrCodeComposer(
         )
         transform.mapPoints(quietZoneCorners)
         if (quietZoneCorners.any { !it.isFinite() }) {
-            return QrComposeResult.Failure("无法建立二维码静区")
+            return QrComposeResult.Failure("二维码周围空白不足，无法替换")
         }
 
         val canvas = Canvas(bitmap)

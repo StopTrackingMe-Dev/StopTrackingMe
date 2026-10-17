@@ -1,9 +1,14 @@
 package app.stoptrackingme
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,17 +22,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Image
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,8 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
@@ -58,7 +70,17 @@ import app.stoptrackingme.rules.CleanResult
 import app.stoptrackingme.rules.RuleRepository
 import app.stoptrackingme.session.ShareSession
 import app.stoptrackingme.session.ShareSessionStore
+import app.stoptrackingme.ui.components.ActionTile
+import app.stoptrackingme.ui.components.BannerTone
+import app.stoptrackingme.ui.components.ChoiceGroup
+import app.stoptrackingme.ui.components.ChoicePill
+import app.stoptrackingme.ui.components.ExpandableDetails
+import app.stoptrackingme.ui.components.HintText
+import app.stoptrackingme.ui.components.IconBadge
+import app.stoptrackingme.ui.components.MessageBanner
+import app.stoptrackingme.ui.theme.QQBlue
 import app.stoptrackingme.ui.theme.StopTrackingTheme
+import app.stoptrackingme.ui.theme.WeChatGreen
 import app.stoptrackingme.usage.UsageReporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -106,9 +128,9 @@ class ResultActivity : ComponentActivity() {
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text("净化结果", style = MaterialTheme.typography.headlineMedium)
                         if (current == null || result == null) {
-                            Text("本次会话已结束或进程已重启，链接内容没有被持久化。")
+                            Text("这次的结果已失效", style = MaterialTheme.typography.headlineSmall)
+                            Text("为保护隐私，链接不会被保存。请回到原应用重新分享一次。")
                             OutlinedButton(onClick = ::finish) { Text("关闭") }
                         } else {
                             ResultContent(
@@ -122,6 +144,7 @@ class ResultActivity : ComponentActivity() {
                                 onPreserveChange = { preserveOriginalText = it },
                                 onRetry = ::retry,
                                 onPreviewRetry = ::loadSharePreview,
+                                onCopy = ::copyCleanedLink,
                                 onShare = ::openSystemShare,
                                 onShareToWeChatFriend = {
                                     openWeChatShare(WeChatShare.Destination.FRIEND)
@@ -152,7 +175,7 @@ class ResultActivity : ComponentActivity() {
         if (isFinishing && ::sessionId.isInitialized) {
             ShareSessionStore.clear(sessionId)
             AutomationRuntime.reset(sessionId)
-            ServiceStatus.update(this, "本次分享会话已结束")
+            ServiceStatus.update(this, ServiceStatus.READY_MESSAGE)
             session = null
         }
         super.onDestroy()
@@ -186,7 +209,6 @@ class ResultActivity : ComponentActivity() {
         val cleanedUrl = result.cleanedUrl ?: return
         val installed = RuleRepository.get(this).findInstalledRule(current.ruleKey) ?: return
         val previewRule = installed.rule.sharePreview ?: run {
-            previewMessage = "当前规则未配置网页预览，将使用默认分享卡片。"
             return
         }
         previewing = true
@@ -211,9 +233,7 @@ class ResultActivity : ComponentActivity() {
                 if (ShareSessionStore.get(requestedSessionId)?.id != requestedSessionId) return@withContext
                 sharePreview = loaded.getOrElse { fallback }
                 previewMessage = if (loaded.isFailure) {
-                    previewFailureMessage(loaded.exceptionOrNull()!!) + " 已改用应用复制文案。"
-                } else if (loaded.getOrNull()?.thumbnail == null) {
-                    "已读取网页标题和摘要，但没有可用封面。"
+                    previewFailureMessage(loaded.exceptionOrNull()!!) + " 将使用默认卡片分享。"
                 } else {
                     null
                 }
@@ -238,7 +258,7 @@ class ResultActivity : ComponentActivity() {
         }.onSuccess {
             UsageReporter.recordShare(this)
         }.onFailure {
-            openMessage = "系统分享无法启动，请稍后重试。"
+            openMessage = "无法打开分享面板，请稍后重试。"
         }
     }
 
@@ -254,7 +274,7 @@ class ResultActivity : ComponentActivity() {
                     WeChatSdkConsent.grant(this)
                     openWeChatShare(destination)
                 },
-                onDecline = { openMessage = "未启用微信 SDK，已取消分享" },
+                onDecline = { openMessage = "未授权微信分享，已取消" },
             )
             return
         }
@@ -286,14 +306,14 @@ class ResultActivity : ComponentActivity() {
                 destination = destination,
             )
         ) {
-            WeChatShare.Result.CONSENT_REQUIRED -> "微信 SDK 授权已撤回，请重新分享。"
+            WeChatShare.Result.CONSENT_REQUIRED -> "微信分享授权已撤回，请重新分享。"
             WeChatShare.Result.REQUEST_SENT -> {
                 UsageReporter.recordShare(this)
                 null
             }
-            WeChatShare.Result.WECHAT_NOT_INSTALLED -> "未安装微信，无法使用微信分享。"
+            WeChatShare.Result.WECHAT_NOT_INSTALLED -> "没有安装微信，请选择其他分享方式。"
             WeChatShare.Result.REQUEST_REJECTED ->
-                "微信未接受分享请求，请确认开放平台中的包名和应用签名配置正确。"
+                "微信暂时无法接收分享，请稍后重试或选择其他分享方式。"
         }
     }
 
@@ -329,7 +349,7 @@ class ResultActivity : ComponentActivity() {
                 ),
             )
         }.onFailure {
-            openMessage = "QQ 分享无法启动，请稍后重试。"
+            openMessage = "无法打开 QQ 分享，请稍后重试。"
         }
     }
 
@@ -338,16 +358,26 @@ class ResultActivity : ComponentActivity() {
         val chooser = ExternalLinkIntentFactory.createChooser(
             context = this,
             url = cleanedUrl,
-            title = "使用其他应用打开",
+            title = "选择打开方式",
         )
         if (chooser == null) {
-            openMessage = "没有找到其他可以打开此链接的应用；你仍可复制或分享净化链接。"
+            openMessage = "没有找到可以打开这个链接的应用，你仍可复制或分享它。"
             return
         }
         try {
             startActivity(chooser)
         } catch (_: ActivityNotFoundException) {
-            openMessage = "系统无法打开此链接；你仍可复制或分享净化链接。"
+            openMessage = "无法打开这个链接，你仍可复制或分享它。"
+        }
+    }
+
+    private fun copyCleanedLink() {
+        val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("净化链接", cleanedUrl))
+        // Android 13+ shows its own clipboard confirmation.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -368,6 +398,7 @@ private fun ResultContent(
     onPreserveChange: (Boolean) -> Unit,
     onRetry: () -> Unit,
     onPreviewRetry: () -> Unit,
+    onCopy: () -> Unit,
     onShare: () -> Unit,
     onShareToWeChatFriend: () -> Unit,
     onShareToWeChatTimeline: () -> Unit,
@@ -377,165 +408,269 @@ private fun ResultContent(
     onClose: () -> Unit,
     openMessage: String?,
 ) {
-    result.cleanedUrl?.let { UrlCard("净化 URL", it) }
+    if (result.isSuccess) {
+        ResultHeadline(
+            icon = R.drawable.ic_check_circle,
+            title = "链接已净化",
+            subtitle = if (result.removedParameters.isNotEmpty()) {
+                "已去除 ${result.removedParameters.size} 个追踪参数"
+            } else {
+                "这个链接没有发现需要去除的追踪参数"
+            },
+            tint = MaterialTheme.colorScheme.primary,
+        )
+    } else {
+        ResultHeadline(
+            icon = R.drawable.ic_warning,
+            title = "没能净化这个链接",
+            subtitle = result.failureMessage,
+            tint = MaterialTheme.colorScheme.error,
+        )
+    }
 
-    result.failureMessage?.let {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("未生成可分享的净化链接", style = MaterialTheme.typography.titleMedium)
-                Text(it)
-                if (result.retryable) {
-                    Button(onClick = onRetry, enabled = !retrying) {
-                        if (retrying) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.height(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Text("重试展开")
-                        }
-                    }
-                }
+    result.cleanedUrl?.let { CleanedUrlCard(it, onCopy) }
+
+    if (!result.isSuccess && result.retryable) {
+        Button(
+            onClick = onRetry,
+            enabled = !retrying,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (retrying) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Text("重试")
             }
         }
     }
 
     if (result.isSuccess) {
-        Text("分享卡片预览", style = MaterialTheme.typography.titleMedium)
         if (previewing) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                Text("正在读取公开网页的标题、摘要和封面…")
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                HintText("正在生成分享卡片…")
             }
         } else if (sharePreview != null) {
             SharePreviewCard(sharePreview)
         }
-        previewMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        previewMessage?.let { HintText(it) }
         if (previewRetryable) {
-            OutlinedButton(
-                onClick = onPreviewRetry,
-                enabled = !previewing,
-            ) {
-                Text("重新读取卡片")
+            TextButton(onClick = onPreviewRetry, enabled = !previewing) {
+                Icon(
+                    painterResource(R.drawable.ic_refresh),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("重新生成卡片")
             }
         }
-        Button(
-            onClick = onShareToWeChatFriend,
-            enabled = !previewing,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("分享给微信朋友")
-        }
-        Button(
-            onClick = onShareToWeChatTimeline,
-            enabled = !previewing,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("分享到微信朋友圈")
-        }
-        Button(
-            onClick = onShareToQQFriend,
-            enabled = !previewing,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("分享给 QQ 好友")
-        }
-        Button(
-            onClick = onShareToQzone,
-            enabled = !previewing,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("分享到 QQ 空间")
-        }
-        Button(
-            onClick = onShare,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("系统分享")
-        }
-        Button(
-            onClick = onOpen,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("使用其他应用打开净化链接")
-        }
-        openMessage?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
-        }
 
-        Text("分享内容", style = MaterialTheme.typography.titleMedium)
-        ChoiceRow(
-            selected = !preserveOriginalText,
-            label = "仅分享净化 URL（默认）",
-            onClick = { onPreserveChange(false) },
-        )
-        ChoiceRow(
-            selected = preserveOriginalText,
-            label = "保留原文并替换第一个 URL",
-            onClick = { onPreserveChange(true) },
-        )
-    }
-
-    if (result.originalUrl != null || result.expandedUrl != null || result.removedParameters.isNotEmpty()) {
-        Text("处理详情", style = MaterialTheme.typography.titleMedium)
-        result.originalUrl?.let { UrlCard("原始 URL", it) }
-        result.expandedUrl?.let { UrlCard("展开后的 URL", it) }
-        if (result.removedParameters.isNotEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("已删除的参数", style = MaterialTheme.typography.titleMedium)
-                    Text(result.removedParameters.joinToString("、"))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "分享到",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    ActionTile(
+                        icon = R.drawable.ic_chat,
+                        label = "微信好友",
+                        tint = WeChatGreen,
+                        enabled = !previewing,
+                        onClick = onShareToWeChatFriend,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionTile(
+                        icon = R.drawable.ic_moments,
+                        label = "朋友圈",
+                        tint = WeChatGreen,
+                        enabled = !previewing,
+                        onClick = onShareToWeChatTimeline,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionTile(
+                        icon = R.drawable.ic_person,
+                        label = "QQ 好友",
+                        tint = QQBlue,
+                        enabled = !previewing,
+                        onClick = onShareToQQFriend,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionTile(
+                        icon = R.drawable.ic_star,
+                        label = "QQ 空间",
+                        tint = QQBlue,
+                        enabled = !previewing,
+                        onClick = onShareToQzone,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    ActionTile(
+                        icon = R.drawable.ic_copy,
+                        label = "复制链接",
+                        onClick = onCopy,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionTile(
+                        icon = R.drawable.ic_share,
+                        label = "更多应用",
+                        onClick = onShare,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ActionTile(
+                        icon = R.drawable.ic_open_in_new,
+                        label = "打开链接",
+                        onClick = onOpen,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
+        openMessage?.let { MessageBanner(it, BannerTone.ERROR) }
+
+        Text("分享时附带", style = MaterialTheme.typography.titleSmall)
+        ChoiceGroup {
+            ChoicePill(
+                icon = R.drawable.ic_link,
+                label = "只发链接",
+                selected = !preserveOriginalText,
+                onClick = { onPreserveChange(false) },
+                modifier = Modifier.weight(1f),
+            )
+            ChoicePill(
+                icon = R.drawable.ic_chat,
+                label = "保留原文案",
+                selected = preserveOriginalText,
+                onClick = { onPreserveChange(true) },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
-    result.warnings.forEach { warning ->
-        Text("提示：$warning", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    if (result.originalUrl != null || result.expandedUrl != null || result.removedParameters.isNotEmpty()) {
+        ExpandableDetails("查看处理详情") {
+            result.originalUrl?.let { DetailBlock("原始链接", it) }
+            result.expandedUrl?.let { DetailBlock("短链展开后", it) }
+            if (result.removedParameters.isNotEmpty()) {
+                DetailBlock("已去除的参数", result.removedParameters.joinToString("、"))
+            }
+            result.warnings.forEach { HintText(it) }
+        }
+    } else {
+        result.warnings.forEach { HintText(it) }
     }
     Spacer(Modifier.height(4.dp))
     OutlinedButton(
         onClick = onClose,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text("关闭并清除本次内容")
+        Text("完成")
     }
+    HintText("关闭后不会保留本次链接。")
 }
 
 internal fun previewFailureMessage(error: Throwable): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
     if (causes.any { it is PreviewAccessBlockedException }) {
-        return "公开网页跳转到访问限制页面，无法生成预览；将使用默认分享卡片。"
+        return "网页设置了访问限制，无法生成卡片预览。"
     }
     if (causes.any { it is PreviewMetadataUnavailableException }) {
-        return "公开网页没有可用的标题、摘要或封面；将使用默认分享卡片。"
+        return "网页没有提供标题、摘要或封面，无法生成卡片预览。"
     }
     val tooLarge = causes.filterIsInstance<PreviewResourceTooLargeException>().firstOrNull()
     if (tooLarge != null) {
         val limitMiB = tooLarge.maxBytes / (1024 * 1024)
-        return "公开网页内容超过 ${limitMiB} MiB，无法生成预览；将使用默认分享卡片。"
+        return "网页内容超过 $limitMiB MB，无法生成卡片预览。"
     }
     val http = causes.filterIsInstance<PreviewHttpException>().firstOrNull()
     if (http != null) {
-        return "公开网页返回 HTTP ${http.statusCode}，无法生成预览；将使用默认分享卡片。"
+        return "网页暂时无法访问（错误 ${http.statusCode}），无法生成卡片预览。"
     }
     if (causes.any { it is SocketTimeoutException }) {
-        return "读取公开网页超时；将使用默认分享卡片，可稍后重试。"
+        return "网页加载超时，可稍后重试。"
     }
     if (causes.any { it is NetworkResolutionException }) {
-        return "无法解析公开网页域名；将使用默认分享卡片，可检查网络后重试。"
+        return "无法连接到网页，请检查网络后重试。"
     }
-    return "未能读取公开网页信息，将使用默认分享卡片；可稍后重试。"
+    return "暂时无法读取网页信息，可稍后重试。"
+}
+
+@androidx.compose.runtime.Composable
+private fun ResultHeadline(
+    @DrawableRes icon: Int,
+    title: String,
+    subtitle: String?,
+    tint: androidx.compose.ui.graphics.Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.padding(top = 8.dp),
+    ) {
+        IconBadge(icon = icon, tint = tint, size = 52)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall)
+            subtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun CleanedUrlCard(url: String, onCopy: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_link),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            SelectionContainer(modifier = Modifier.weight(1f)) {
+                Text(
+                    url,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onCopy) {
+                Icon(
+                    painterResource(R.drawable.ic_copy),
+                    contentDescription = "复制链接",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+    }
 }
 
 @androidx.compose.runtime.Composable
@@ -545,7 +680,10 @@ private fun SharePreviewCard(preview: WebSharePreview) {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
         }
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
         Row(
             modifier = Modifier.padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -557,7 +695,7 @@ private fun SharePreviewCard(preview: WebSharePreview) {
             ) {
                 Text(
                     text = preview.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -569,44 +707,32 @@ private fun SharePreviewCard(preview: WebSharePreview) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            thumbnail?.let {
+            if (thumbnail != null) {
                 Image(
-                    bitmap = it,
+                    bitmap = thumbnail,
                     contentDescription = "网页封面",
-                    modifier = Modifier.size(72.dp),
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(10.dp)),
                     contentScale = ContentScale.Crop,
                 )
+            } else {
+                IconBadge(icon = R.drawable.ic_globe, size = 48)
             }
         }
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun UrlCard(label: String, value: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
-            SelectionContainer {
-                Text(value, style = MaterialTheme.typography.bodyMedium)
-            }
+private fun DetailBlock(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        SelectionContainer {
+            Text(
+                value,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun ChoiceRow(
-    selected: Boolean,
-    label: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Text(label)
     }
 }

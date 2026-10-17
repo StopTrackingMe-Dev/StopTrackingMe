@@ -36,8 +36,8 @@ object CapturedShareProcessor {
                 context = appContext,
                 sessionId = sessionId,
                 failure = ProcessingFailure.URL_NOT_FOUND,
-                message = "剪贴板内容超过规则允许的长度",
-                status = "复制内容超过安全长度限制",
+                message = "复制的内容太长，无法识别其中的链接",
+                status = "复制的内容太长",
                 onResultReady = onResultReady,
                 onAborted = onAborted,
             )
@@ -49,7 +49,7 @@ object CapturedShareProcessor {
             post(onAborted)
             return
         }
-        ServiceStatus.update(appContext, "正在提取分享 URL", AutomationStage.EXTRACT)
+        ServiceStatus.update(appContext, "正在识别链接", AutomationStage.EXTRACT)
         Thread processing@{
             if (!ShareSessionStore.attachWorker(sessionId, Thread.currentThread())) {
                 post(onAborted)
@@ -63,7 +63,7 @@ object CapturedShareProcessor {
                             if (AutomationRuntime.transition(sessionId, AutomationStage.RESOLVE)) {
                                 ServiceStatus.update(
                                     appContext,
-                                    "正在验证并展开链接",
+                                    "正在展开短链接…",
                                     AutomationStage.RESOLVE,
                                 )
                             }
@@ -72,7 +72,7 @@ object CapturedShareProcessor {
                             if (AutomationRuntime.transition(sessionId, AutomationStage.CLEAN)) {
                                 ServiceStatus.update(
                                     appContext,
-                                    "正在删除追踪参数",
+                                    "正在去除追踪参数…",
                                     AutomationStage.CLEAN,
                                 )
                             }
@@ -95,7 +95,7 @@ object CapturedShareProcessor {
                 post {
                     ServiceStatus.update(
                         appContext,
-                        "处理完成，等待用户确认",
+                        "链接已净化",
                         AutomationStage.SHOW_RESULT,
                     )
                     onResultReady()
@@ -118,7 +118,7 @@ object CapturedShareProcessor {
             sessionId = sessionId,
             failure = ProcessingFailure.CLIPBOARD_EMPTY,
             message = message,
-            status = "未能读取复制内容",
+            status = "没能读取到复制的链接",
             onResultReady = onResultReady,
             onAborted = onAborted,
         )

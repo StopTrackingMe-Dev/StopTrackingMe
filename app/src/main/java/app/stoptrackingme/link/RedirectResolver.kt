@@ -65,7 +65,7 @@ class HttpRedirectResolver(
         var current = try {
             URI(url)
         } catch (_: Exception) {
-            return RedirectOutcome.Failure("短链格式无效", false)
+            return RedirectOutcome.Failure("短链接格式不正确", false)
         }
         if (policy.requireHttps &&
             current.scheme.equals("http", ignoreCase = true) &&
@@ -75,7 +75,7 @@ class HttpRedirectResolver(
             current = try {
                 URI("https" + current.toASCIIString().substring(current.scheme.length))
             } catch (_: Exception) {
-                return RedirectOutcome.Failure("短链格式无效", false)
+                return RedirectOutcome.Failure("短链接格式不正确", false)
             }
         }
         val visited = linkedSetOf<String>()
@@ -83,17 +83,17 @@ class HttpRedirectResolver(
         for (redirectCount in 0..policy.maxRedirects) {
             val scheme = current.scheme?.lowercase(Locale.ROOT)
             if (scheme != "http" && scheme != "https") {
-                return RedirectOutcome.Failure("重定向使用了不支持的协议", false)
+                return RedirectOutcome.Failure("短链接跳转使用了不支持的协议", false)
             }
             if (policy.requireHttps && scheme != "https") {
-                return RedirectOutcome.Failure("短链及其重定向必须使用 HTTPS", false)
+                return RedirectOutcome.Failure("为安全起见，只展开使用 HTTPS 的短链接", false)
             }
             if (current.userInfo != null || current.host.isNullOrBlank()) {
-                return RedirectOutcome.Failure("重定向目标格式无效", false)
+                return RedirectOutcome.Failure("短链接的跳转地址不正确", false)
             }
             if (AccessFailureUrl.matches(current, policy)) {
                 val recovered = AccessFailureUrl.recoverTarget(current, policy)
-                    ?: return RedirectOutcome.Failure("短链跳转到访问限制页面，且无法恢复原始地址", false)
+                    ?: return RedirectOutcome.Failure("短链接跳转到了访问限制页面，无法恢复原始地址", false)
                 return RedirectOutcome.Success(recovered.toASCIIString(), redirectCount)
             }
             if (policy.stopAtAllowedFinalHost &&
@@ -106,14 +106,14 @@ class HttpRedirectResolver(
             }
             val canonical = current.normalize().toASCIIString()
             if (!visited.add(canonical)) {
-                return RedirectOutcome.Failure("短链出现重定向循环", false)
+                return RedirectOutcome.Failure("短链接出现跳转循环，已停止展开", false)
             }
             try {
                 networkGuard.requirePublic(current, policy.connectTimeoutMs)
             } catch (_: BlockedNetworkTargetException) {
-                return RedirectOutcome.Failure("已阻止私网、本机或链路本地重定向", true)
+                return RedirectOutcome.Failure("短链接试图跳转到内网地址，已阻止", true)
             } catch (_: Exception) {
-                return RedirectOutcome.Failure("无法验证重定向网络目标", false)
+                return RedirectOutcome.Failure("无法确认短链接的跳转地址是否安全", false)
             }
 
             try {
@@ -121,33 +121,33 @@ class HttpRedirectResolver(
                 val status = response.statusCode
                 if (status in REDIRECT_STATUS_CODES) {
                     if (redirectCount >= policy.maxRedirects) {
-                        return RedirectOutcome.Failure("短链重定向次数超过限制", false)
+                        return RedirectOutcome.Failure("短链接跳转次数过多，已停止展开", false)
                     }
                     val location = response.location
-                        ?: return RedirectOutcome.Failure("短链重定向缺少目标", false)
+                        ?: return RedirectOutcome.Failure("短链接没有返回跳转地址", false)
                     val next = try {
                         current.resolve(location)
                     } catch (_: Exception) {
-                        return RedirectOutcome.Failure("短链重定向目标无效", false)
+                        return RedirectOutcome.Failure("短链接的跳转地址不正确", false)
                     }
                     val nextScheme = next.scheme?.lowercase(Locale.ROOT)
                     if (nextScheme != "http" && nextScheme != "https" ||
                         policy.requireHttps && nextScheme != "https"
                     ) {
-                        return RedirectOutcome.Failure("重定向协议被阻止", false)
+                        return RedirectOutcome.Failure("短链接跳转使用了不安全的协议，已阻止", false)
                     }
                     current = next
                     continue
                 }
                 if (status !in 200..299) {
-                    return RedirectOutcome.Failure("短链服务器返回 HTTP $status", false)
+                    return RedirectOutcome.Failure("短链接暂时无法访问（错误 $status）", false)
                 }
                 return RedirectOutcome.Success(current.toASCIIString(), redirectCount)
             } catch (_: Exception) {
-                return RedirectOutcome.Failure("短链展开失败，请检查网络后重试", false)
+                return RedirectOutcome.Failure("短链接展开失败，请检查网络后重试", false)
             }
         }
-        return RedirectOutcome.Failure("短链展开失败", false)
+        return RedirectOutcome.Failure("短链接展开失败", false)
     }
 
     companion object {

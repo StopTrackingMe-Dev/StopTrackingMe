@@ -63,7 +63,7 @@ class QQShareActivity : Activity() {
             )
         }
         if (parsed.isFailure) {
-            finishWith(QQShareOutcome.FAILED, "QQ 分享参数无效")
+            finishWith(QQShareOutcome.FAILED, "分享内容不完整，请重试")
             return
         }
 
@@ -71,7 +71,7 @@ class QQShareActivity : Activity() {
             ShareOverlayCoordinator.dispatch(ShareOverlayEvent.QQShareStarted(sessionId))
         }
         if (savedInstanceState?.getBoolean(STATE_REQUEST_SENT) == true) {
-            finishWith(QQShareOutcome.FAILED, "QQ 分享会话已中断，请重试")
+            finishWith(QQShareOutcome.FAILED, "QQ 分享已中断，请重试")
             return
         }
         if (QQSdkConsent.isGranted(this)) {
@@ -106,7 +106,7 @@ class QQShareActivity : Activity() {
                 QQSdkConsent.grant(this)
                 startQQShare()
             },
-            onDecline = { finishWith(QQShareOutcome.CANCELLED, "未启用 QQ SDK，已取消分享") },
+            onDecline = { finishWith(QQShareOutcome.CANCELLED, "未授权 QQ 分享，已取消") },
         )
     }
 
@@ -121,7 +121,7 @@ class QQShareActivity : Activity() {
                 BuildConfig.QQ_APP_ID,
                 applicationContext,
                 fileProviderAuthority(this),
-            ) ?: error("QQ OpenSDK 初始化失败")
+            ) ?: error("QQ 分享暂时不可用")
             tencent = instance
 
             val supported = when (destination) {
@@ -135,8 +135,8 @@ class QQShareActivity : Activity() {
                     QQShareOutcome.QQ_NOT_INSTALLED
                 }
                 val message = when (outcome) {
-                    QQShareOutcome.QQ_NOT_INSTALLED -> "未安装支持此功能的手机 QQ"
-                    else -> "当前手机 QQ 版本不支持此分享方式"
+                    QQShareOutcome.QQ_NOT_INSTALLED -> "没有安装手机 QQ"
+                    else -> "当前 QQ 版本不支持这种分享方式"
                 }
                 finishWith(outcome, message)
                 return

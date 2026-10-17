@@ -27,14 +27,14 @@ object WeChatSdkConsent {
 
 enum class ShareSdk(val displayName: String, val policyUrl: String, val disclosure: String) {
     QQ(
-        "QQ 互联 SDK", QQSdkConsent.PRIVACY_POLICY_URL,
-        "用于分享至 QQ 好友或 QQ 空间。启用后，SDK 会获取设备型号并检查 QQ/TIM 是否安装；" +
-            "分享时会把标题、摘要、净化链接和封面交给 QQ。",
+        "QQ 分享", QQSdkConsent.PRIVACY_POLICY_URL,
+        "分享到 QQ 好友或 QQ 空间需要使用腾讯提供的 QQ 互联 SDK。启用后，它会读取设备型号并检查是否安装了 QQ/TIM；" +
+            "分享时会把标题、摘要、净化后的链接和封面交给 QQ。",
     ),
     WECHAT(
-        "微信 OpenSDK", WeChatSdkConsent.PRIVACY_POLICY_URL,
-        "用于分享至微信好友或朋友圈。启用后，SDK 会检查微信是否安装；" +
-            "分享时会把标题、摘要、净化链接和封面交给微信。",
+        "微信分享", WeChatSdkConsent.PRIVACY_POLICY_URL,
+        "分享到微信好友或朋友圈需要使用腾讯提供的微信 OpenSDK。启用后，它会检查是否安装了微信；" +
+            "分享时会把标题、摘要、净化后的链接和封面交给微信。",
     ),
 }
 
@@ -46,11 +46,10 @@ fun showShareSdkConsentDialog(
     onDecline: () -> Unit,
 ): AlertDialog {
     val dialog = AlertDialog.Builder(ContextThemeWrapper(context, android.R.style.Theme_Material_Light_Dialog_Alert))
-        .setTitle("${sdk.displayName} 授权")
+        .setTitle("启用${sdk.displayName}？")
         .setMessage(
-            "此功能由腾讯提供的 ${sdk.displayName} 实现。${sdk.disclosure}\n\n" +
-                "请阅读该 SDK 的隐私说明，了解个人信息处理规则，并选择是否同意启用。" +
-                "不同意不影响链接净化和其他分享方式。你可以随时在设置中撤回此 SDK 授权。",
+            "${sdk.disclosure}\n\n" +
+                "不同意也不影响链接净化和其他分享方式，并可随时在「设置 › 隐私」中撤回。",
         )
         .setPositiveButton("同意并继续") { _, _ -> onAgree() }
         .setNegativeButton("不同意") { _, _ -> onDecline() }
@@ -66,7 +65,7 @@ fun showShareSdkConsentDialog(
                 context.startActivity(chooser)
             }.isSuccess
             if (!opened) {
-                Toast.makeText(context, "无法打开 SDK 隐私说明", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "无法打开隐私说明", Toast.LENGTH_SHORT).show()
             }
         }
     }

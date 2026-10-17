@@ -135,13 +135,13 @@ class ShareAccessibilityService : AccessibilityService() {
                     presentOverlayResult(previous.sessionId)
             ServiceStatus.update(
                 this,
-                if (restored) "服务已重新连接，已恢复净化结果悬浮窗" else "服务已重新连接，净化结果仍在等待确认",
+                if (restored) "已恢复运行，上次的净化结果仍在悬浮窗中" else "已恢复运行，上次的净化结果还没有处理",
                 AutomationStage.SHOW_RESULT,
             )
         } else {
             AutomationRuntime.reset()
             ShareSessionStore.clear(previous.sessionId)
-            ServiceStatus.update(this, "服务已连接，等待受支持应用中的分享操作", AutomationStage.IDLE)
+            ServiceStatus.update(this, ServiceStatus.READY_MESSAGE, AutomationStage.IDLE)
         }
         applyAccessibilityEventScope()
     }
@@ -178,7 +178,7 @@ class ShareAccessibilityService : AccessibilityService() {
                     WeChatNavigationAction.COMPLETE -> {
                         finishOverlaySession(
                             pending.sessionId,
-                            "已从微信返回，可以继续处理新的分享",
+                            "已从微信返回，可以继续分享",
                         )
                     }
                     WeChatNavigationAction.IGNORE -> Unit
@@ -189,9 +189,9 @@ class ShareAccessibilityService : AccessibilityService() {
                 finishOverlaySession(
                     snapshotBeforeEvent.sessionId.orEmpty(),
                     if (pendingSystemShareSessionId == snapshotBeforeEvent.sessionId) {
-                        "已打开系统分享，本次悬浮分享会话已结束"
+                        "已打开分享面板"
                     } else {
-                        "已离开来源应用，本次悬浮分享会话已结束"
+                        "已离开原应用，本次分享已结束"
                     },
                 )
             }
@@ -235,9 +235,9 @@ class ShareAccessibilityService : AccessibilityService() {
             ServiceStatus.update(
                 this,
                 if (isDebugBuild) {
-                    "检测到其他应用事件（$eventPackage），本次自动化已终止"
+                    "已切换到其他应用（$eventPackage），本次净化已取消"
                 } else {
-                    "已切换应用，本次自动化已终止"
+                    "已切换到其他应用，本次净化已取消"
                 },
                 AutomationStage.IDLE,
             )
@@ -246,11 +246,11 @@ class ShareAccessibilityService : AccessibilityService() {
         val installed = when (val resolution = rules.resolveActiveRule(eventPackage)) {
             is ActiveRuleResolution.Active -> resolution.installed
             is ActiveRuleResolution.Conflict -> {
-                ServiceStatus.update(this, "检测到规则冲突，请先在应用内选择唯一活动规则")
+                ServiceStatus.update(this, "这个应用有多条可用规则，请到「规则」页选择一条")
                 return
             }
             is ActiveRuleResolution.InvalidSelection -> {
-                ServiceStatus.update(this, "此前选择的规则已失效，请重新选择活动规则")
+                ServiceStatus.update(this, "之前选择的规则已不可用，请到「规则」页重新选择")
                 return
             }
             ActiveRuleResolution.NoRule -> return
@@ -316,7 +316,7 @@ class ShareAccessibilityService : AccessibilityService() {
         AutomationRuntime.reset()
         ShareSessionStore.clear(sessionId)
         applyAccessibilityEventScope()
-        ServiceStatus.update(this, "服务已中断，本次自动化已终止", AutomationStage.IDLE)
+        ServiceStatus.update(this, "服务已被系统中断，本次净化已取消", AutomationStage.IDLE)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -467,7 +467,7 @@ class ShareAccessibilityService : AccessibilityService() {
                     installed.rule.displayName,
                 )
             ) {
-                cancelTask(sessionId, "未能显示按需净化悬浮入口")
+                cancelTask(sessionId, "悬浮按钮未能显示，请重新分享")
                 return
             }
         } else if (ResultPresentationPreferences.get(this) ==
@@ -480,11 +480,11 @@ class ShareAccessibilityService : AccessibilityService() {
         ServiceStatus.update(
             this,
             if (awaitCopyConfirmation) {
-                "分享面板已打开；点击悬浮按钮后才会复制链接"
+                "分享面板已打开，点按悬浮按钮开始净化"
             } else if (fallback) {
-                "已确认完整分享面板指纹，正在查找复制链接"
+                "分享面板已打开，正在查找“复制链接”"
             } else {
-                "已捕获分享点击，正在查找复制链接"
+                "正在查找“复制链接”"
             },
             if (awaitCopyConfirmation) {
                 AutomationStage.AWAIT_COPY_CONFIRMATION
@@ -500,9 +500,9 @@ class ShareAccessibilityService : AccessibilityService() {
                 cancelTask(
                     sessionId,
                     if (current.stage == AutomationStage.AWAIT_COPY_CONFIRMATION) {
-                        "等待用户点击悬浮按钮超时，本次自动化已结束"
+                        "长时间未点按悬浮按钮，已自动取消"
                     } else {
-                        "查找复制链接超时，本次自动化已终止"
+                        "没有找到“复制链接”按钮，本次净化已取消"
                     },
                 )
             }
@@ -532,7 +532,7 @@ class ShareAccessibilityService : AccessibilityService() {
             awaitingPanelSeenSessionId = sessionId
         } else if (awaitingPanelSeenSessionId == sessionId) {
             fallbackPanelLatch.remove(installed.rule.target.packageName)
-            cancelTask(sessionId, "分享面板已关闭，未执行复制链接")
+            cancelTask(sessionId, "分享面板已关闭")
         }
     }
 
@@ -547,7 +547,7 @@ class ShareAccessibilityService : AccessibilityService() {
         val installed = rules.findInstalledRule(session.ruleKey) ?: return
         val root = rootInActiveWindow
         if (root?.packageName?.toString() != current.sourcePackage) {
-            cancelTask(sessionId, "已离开来源应用，未执行复制链接")
+            cancelTask(sessionId, "已离开原应用，本次净化已取消")
             return
         }
         if (!AccessibilityTree.hasCompleteFingerprint(
@@ -556,12 +556,12 @@ class ShareAccessibilityService : AccessibilityService() {
             )
         ) {
             if (awaitingPanelSeenSessionId == sessionId) {
-                cancelTask(sessionId, "分享面板已关闭，未执行复制链接")
+                cancelTask(sessionId, "分享面板已关闭")
             } else {
-                overlayController.updateStatus(sessionId, "分享面板尚未准备好，请稍后再点")
+                overlayController.updateStatus(sessionId, "分享面板还在加载，请稍后再点")
                 ServiceStatus.update(
                     this,
-                    "分享面板尚未准备好，仍在等待用户确认",
+                    "分享面板还在加载",
                     AutomationStage.AWAIT_COPY_CONFIRMATION,
                 )
             }
@@ -570,12 +570,12 @@ class ShareAccessibilityService : AccessibilityService() {
         if (!AutomationRuntime.transition(sessionId, AutomationStage.FIND_COPY) ||
             !overlayController.beginConfirmedCopy(sessionId)
         ) {
-            cancelTask(sessionId, "无法开始按需净化")
+            cancelTask(sessionId, "暂时无法开始净化，请重新分享")
             return
         }
         awaitingPanelSeenSessionId = null
         updateOverlayGeometry(root, installed)
-        ServiceStatus.update(this, "用户已确认，正在查找复制链接", AutomationStage.FIND_COPY)
+        ServiceStatus.update(this, "正在查找“复制链接”", AutomationStage.FIND_COPY)
         scheduleCopyScan(installed, delayMillis = 0L)
     }
 
@@ -600,14 +600,14 @@ class ShareAccessibilityService : AccessibilityService() {
             return
         }
         if (rootPackage != installed.rule.target.packageName) {
-            cancelTask(sessionId, "活动窗口已变化，本次自动化已终止")
+            cancelTask(sessionId, "界面已变化，本次净化已取消")
             return
         }
         updateOverlayGeometry(root, installed)
         if (current.stage == AutomationStage.SHARE_TRIGGERED) {
             AutomationRuntime.transition(sessionId, AutomationStage.FIND_COPY)
             overlayController.updateStatus(sessionId, "正在定位“复制链接”…")
-            ServiceStatus.update(this, "正在匹配复制链接节点", AutomationStage.FIND_COPY)
+            ServiceStatus.update(this, "正在查找“复制链接”", AutomationStage.FIND_COPY)
         }
         val match = AccessibilityTree.findFirstClickable(
             root,
@@ -626,15 +626,15 @@ class ShareAccessibilityService : AccessibilityService() {
             }
             if (scrollTarget != null && AutomationRuntime.markScrollAttempt(sessionId)) {
                 overlayController.updateStatus(sessionId, "正在展开分享渠道…")
-                ServiceStatus.update(this, "正在滚动分享渠道以查找复制链接", AutomationStage.FIND_COPY)
+                ServiceStatus.update(this, "正在查找“复制链接”", AutomationStage.FIND_COPY)
                 val scrolled = scrollTowardCopyLink(scrollTarget)
                 if (isDebugBuild) Log.i(TAG, "Copy-link channel scroll performed=$scrolled")
                 overlayController.updateStatus(
                     sessionId,
                     if (scrolled) {
-                        "已滑动分享渠道，正在继续查找“复制链接”…"
+                        "正在继续查找“复制链接”…"
                     } else {
-                        "分享渠道暂时无法滑动，正在继续查找…"
+                        "正在继续查找“复制链接”…"
                     },
                 )
             }
@@ -649,23 +649,23 @@ class ShareAccessibilityService : AccessibilityService() {
             installed.rule.maxClickableParentDepth,
         )
         if (AutomationSafety.hasDangerousLabel(labels)) {
-            cancelTask(sessionId, "节点包含危险操作文字，已阻止点击")
+            cancelTask(sessionId, "为安全起见，已跳过可能有风险的按钮，本次未点击")
             return
         }
         if (!AutomationRuntime.markClickAttempt(sessionId)) return
         clearContentDiscoveryWindow()
         applyAccessibilityEventScope()
         overlayController.updateStatus(sessionId, "已找到链接，正在复制…")
-        ServiceStatus.update(this, "正在执行本次任务唯一一次复制点击", AutomationStage.CLICK_ONCE)
+        ServiceStatus.update(this, "正在复制链接", AutomationStage.CLICK_ONCE)
         val clicked = clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         if (!clicked) {
-            cancelTask(sessionId, "复制链接节点点击失败，本次任务不会重试点击")
+            cancelTask(sessionId, "点击“复制链接”失败，请重新分享")
             return
         }
         handler.postDelayed({
             if (!AutomationRuntime.transition(sessionId, AutomationStage.CAPTURE)) return@postDelayed
             overlayController.updateStatus(sessionId, "正在读取并解析复制内容…")
-            ServiceStatus.update(this, "正在读取本次复制内容", AutomationStage.CAPTURE)
+            ServiceStatus.update(this, "正在读取复制的链接", AutomationStage.CAPTURE)
             captureClipboard(sessionId)
         }, installed.rule.copySettleDelayMs)
     }
@@ -699,7 +699,7 @@ class ShareAccessibilityService : AccessibilityService() {
         if (!attachClipboardFocusBridge(sessionId)) {
             publishClipboardFocusFailure(
                 sessionId,
-                "系统未能创建无干扰剪贴板读取窗口；分享页已保持打开",
+                "暂时无法读取复制的链接，请重新分享一次",
             )
             return
         }
@@ -712,7 +712,7 @@ class ShareAccessibilityService : AccessibilityService() {
             ) {
                 publishClipboardFocusFailure(
                     sessionId,
-                    "系统未授予悬浮窗剪贴板焦点；分享页已保持打开",
+                    "系统暂未允许读取复制的链接，请重新分享一次",
                 )
             }
         }, CLIPBOARD_FOCUS_WATCHDOG_MS)
@@ -820,7 +820,7 @@ class ShareAccessibilityService : AccessibilityService() {
         } else {
             publishClipboardFocusFailure(
                 sessionId,
-                "系统未允许悬浮窗读取剪贴板；分享页已保持打开",
+                "系统暂未允许读取复制的链接，请重新分享一次",
             )
         }
     }
@@ -847,7 +847,7 @@ class ShareAccessibilityService : AccessibilityService() {
         if (!presentOverlayResult(sessionId)) {
             ServiceStatus.update(
                 this,
-                "悬浮窗显示失败；分享页已保持打开，请重新分享",
+                "结果未能显示，请重新分享一次",
                 AutomationStage.SHOW_RESULT,
             )
         }
@@ -856,7 +856,7 @@ class ShareAccessibilityService : AccessibilityService() {
     private fun abortCapturedShareProcessing(sessionId: String) {
         val current = AutomationRuntime.current()
         if (current.sessionId == sessionId) {
-            cancelTask(sessionId, "复制内容处理已终止")
+            cancelTask(sessionId, "本次净化已取消")
         }
     }
 
@@ -900,7 +900,7 @@ class ShareAccessibilityService : AccessibilityService() {
                 if (isDebugBuild) Log.w(TAG, "Unable to launch clipboard capture", launchError)
                 ServiceStatus.update(
                     this,
-                    "系统未能自动打开，请点开净链分享助手继续",
+                    "系统未能自动打开本应用，请手动打开 Stop Tracking 继续",
                     AutomationStage.CAPTURE,
                 )
                 return@postDelayed
@@ -911,7 +911,7 @@ class ShareAccessibilityService : AccessibilityService() {
                 if (latest.sessionId == sessionId && latest.stage == AutomationStage.CAPTURE) {
                     ServiceStatus.update(
                         this,
-                        "系统暂未允许自动打开，请点开净链分享助手继续",
+                        "系统暂未允许自动打开，请手动打开 Stop Tracking 继续",
                         AutomationStage.CAPTURE,
                     )
                 }
@@ -1034,8 +1034,8 @@ class ShareAccessibilityService : AccessibilityService() {
         cancelOverlayWorkers()
         val needsPreview = result.isSuccess && installed.rule.sharePreview != null
         val status = when {
-            !result.isSuccess -> result.failureMessage ?: "没有生成可分享的净化链接"
-            needsPreview -> "链接已净化，正在准备分享卡片…"
+            !result.isSuccess -> result.failureMessage ?: "没能得到可分享的链接"
+            needsPreview -> "链接已净化，正在生成分享卡片…"
             else -> "链接已净化，可以复制或分享"
         }
         if (!overlayController.showResult(
@@ -1050,7 +1050,7 @@ class ShareAccessibilityService : AccessibilityService() {
             return false
         }
         applyAccessibilityEventScope()
-        ServiceStatus.update(this, "处理完成，已显示净化结果悬浮窗", AutomationStage.SHOW_RESULT)
+        ServiceStatus.update(this, "链接已净化", AutomationStage.SHOW_RESULT)
         if (needsPreview) loadOverlayPreview(sessionId, installed)
         return true
     }
@@ -1086,9 +1086,9 @@ class ShareAccessibilityService : AccessibilityService() {
                 overlayPreviewSessionId = sessionId
                 overlayPreview = loaded.getOrElse { fallback }
                 val message = when {
-                    loaded.isFailure -> "链接已净化；分享卡片已回退为应用复制文案"
-                    loaded.getOrNull()?.thumbnail == null -> "链接已净化；网页没有可用封面"
-                    else -> "链接和分享卡片已准备完成"
+                    loaded.isFailure -> "链接已净化，将使用默认卡片分享"
+                    loaded.getOrNull()?.thumbnail == null -> "链接已净化，可以复制或分享"
+                    else -> "链接已净化，分享卡片已准备好"
                 }
                 overlayController.updateStatus(sessionId, message, previewReady = true)
             }
@@ -1123,7 +1123,7 @@ class ShareAccessibilityService : AccessibilityService() {
             )
             ShareOverlayAction.COPY -> copyOverlayLink(sessionId)
             ShareOverlayAction.OPEN_FULL_RESULT -> openFullResult(sessionId)
-            ShareOverlayAction.CLOSE -> finishOverlaySession(sessionId, "本次分享会话已关闭")
+            ShareOverlayAction.CLOSE -> finishOverlaySession(sessionId, "已关闭")
         }
     }
 
@@ -1146,10 +1146,10 @@ class ShareAccessibilityService : AccessibilityService() {
         val timeout = Runnable {
             if (pendingSystemShareSessionId != sessionId) return@Runnable
             cancelSystemShareLaunch(sessionId)
-            overlayController.restore(sessionId, "系统未允许打开分享面板，请重试")
+            overlayController.restore(sessionId, "分享面板没有打开，请重试")
             ServiceStatus.update(
                 this,
-                "系统分享未能打开，净化结果仍在悬浮窗中",
+                "分享面板没有打开，净化结果仍在悬浮窗中",
                 AutomationStage.SHOW_RESULT,
             )
         }
@@ -1172,7 +1172,7 @@ class ShareAccessibilityService : AccessibilityService() {
                     Log.w(TAG, "Unable to open system share from overlay", launchError)
                 }
                 cancelSystemShareLaunch(sessionId)
-                overlayController.updateStatus(sessionId, "系统分享面板打开失败，请重试")
+                overlayController.updateStatus(sessionId, "分享面板没有打开，请重试")
                 return@postDelayed
             }
 
@@ -1206,7 +1206,7 @@ class ShareAccessibilityService : AccessibilityService() {
                     WeChatSdkConsent.grant(this)
                     openOverlayWeChat(sessionId, destination)
                 },
-                onDecline = { overlayController.updateStatus(sessionId, "未启用微信 SDK，可以选择其他分享方式") },
+                onDecline = { overlayController.updateStatus(sessionId, "未授权微信分享，可以选择其他方式") },
             )
             return
         }
@@ -1228,7 +1228,7 @@ class ShareAccessibilityService : AccessibilityService() {
             )
         ) {
             WeChatShare.Result.CONSENT_REQUIRED -> {
-                overlayController.updateStatus(sessionId, "微信 SDK 授权已撤回，请重新分享")
+                overlayController.updateStatus(sessionId, "微信分享授权已撤回，请重新分享")
             }
             WeChatShare.Result.REQUEST_SENT -> {
                 UsageReporter.recordShare(this)
@@ -1237,18 +1237,18 @@ class ShareAccessibilityService : AccessibilityService() {
                 val timeout = Runnable {
                     val pending = pendingWeChat
                     if (pending?.sessionId == sessionId && pending.transaction == transaction) {
-                        finishOverlaySession(sessionId, "微信未返回分享结果，本次悬浮会话已超时结束")
+                        finishOverlaySession(sessionId, "微信没有返回分享结果，已自动结束")
                     }
                 }
                 weChatTimeout = timeout
                 handler.postDelayed(timeout, WECHAT_CALLBACK_TIMEOUT_MS)
-                ServiceStatus.update(this, "等待微信分享结果", AutomationStage.SHOW_RESULT)
+                ServiceStatus.update(this, "正在等待微信完成分享", AutomationStage.SHOW_RESULT)
             }
             WeChatShare.Result.WECHAT_NOT_INSTALLED -> {
-                overlayController.updateStatus(sessionId, "未安装微信，无法使用微信分享")
+                overlayController.updateStatus(sessionId, "没有安装微信，请选择其他分享方式")
             }
             WeChatShare.Result.REQUEST_REJECTED -> {
-                overlayController.updateStatus(sessionId, "微信未接受分享请求，请检查应用签名配置")
+                overlayController.updateStatus(sessionId, "微信暂时无法接收分享，请稍后重试或选择其他方式")
             }
         }
     }
@@ -1272,18 +1272,18 @@ class ShareAccessibilityService : AccessibilityService() {
             OverlayCompletionAction.RESTORE_CANCELLED -> {
                 val restored = overlayController.restore(pending.sessionId, "已取消微信分享，可以重新选择")
                 if (restored) {
-                    ServiceStatus.update(this, "已取消微信分享，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                    ServiceStatus.update(this, "已取消微信分享，净化结果仍在悬浮窗中", AutomationStage.SHOW_RESULT)
                 } else {
-                    finishOverlaySession(pending.sessionId, "悬浮窗恢复失败，本次会话已结束")
+                    finishOverlaySession(pending.sessionId, "悬浮窗未能恢复，本次分享已结束")
                 }
                 true
             }
             OverlayCompletionAction.RESTORE_FAILED -> {
                 val restored = overlayController.restore(pending.sessionId, "微信分享失败，可以重试")
                 if (restored) {
-                    ServiceStatus.update(this, "微信分享失败，净化结果仍在等待确认", AutomationStage.SHOW_RESULT)
+                    ServiceStatus.update(this, "微信分享失败，净化结果仍在悬浮窗中", AutomationStage.SHOW_RESULT)
                 } else {
-                    finishOverlaySession(pending.sessionId, "悬浮窗恢复失败，本次会话已结束")
+                    finishOverlaySession(pending.sessionId, "悬浮窗未能恢复，本次分享已结束")
                 }
                 true
             }
@@ -1318,10 +1318,10 @@ class ShareAccessibilityService : AccessibilityService() {
         val timeout = Runnable {
             if (pendingQQSessionId != sessionId) return@Runnable
             cancelQQShare(sessionId)
-            overlayController.updateStatus(sessionId, "系统未允许打开 QQ 分享，请重试")
+            overlayController.updateStatus(sessionId, "QQ 分享没有打开，请重试")
             ServiceStatus.update(
                 this,
-                "QQ 分享未能打开，净化结果仍在悬浮窗中",
+                "QQ 分享没有打开，净化结果仍在悬浮窗中",
                 AutomationStage.SHOW_RESULT,
             )
         }
@@ -1342,7 +1342,7 @@ class ShareAccessibilityService : AccessibilityService() {
             if (launchError != null) {
                 if (isDebugBuild) Log.w(TAG, "Unable to open QQ share from overlay", launchError)
                 cancelQQShare(sessionId)
-                overlayController.updateStatus(sessionId, "QQ 分享打开失败，请重试")
+                overlayController.updateStatus(sessionId, "QQ 分享没有打开，请重试")
             }
         }, launchDelay)
     }
@@ -1355,12 +1355,12 @@ class ShareAccessibilityService : AccessibilityService() {
         overlayController.hide(sessionId)
         val timeout = Runnable {
             if (pendingQQSessionId == sessionId) {
-                finishOverlaySession(sessionId, "QQ 未返回分享结果，本次悬浮会话已超时结束")
+                finishOverlaySession(sessionId, "QQ 没有返回分享结果，已自动结束")
             }
         }
         qqCallbackTimeout = timeout
         handler.postDelayed(timeout, QQ_CALLBACK_TIMEOUT_MS)
-        ServiceStatus.update(this, "等待 QQ 分享结果", AutomationStage.SHOW_RESULT)
+        ServiceStatus.update(this, "正在等待 QQ 完成分享", AutomationStage.SHOW_RESULT)
         return true
     }
 
@@ -1385,9 +1385,9 @@ class ShareAccessibilityService : AccessibilityService() {
             OverlayCompletionAction.RESTORE_FAILED -> {
                 val message = when (event.outcome) {
                     QQOutcome.NOT_INSTALLED ->
-                        "未安装支持此功能的手机 QQ，可以选择其他方式"
+                        "没有安装手机 QQ，请选择其他分享方式"
                     QQOutcome.UNSUPPORTED ->
-                        "当前手机 QQ 版本不支持此分享方式"
+                        "当前 QQ 版本不支持这种分享方式"
                     else -> "QQ 分享失败，可以重试"
                 }
                 restoreAfterQQ(sessionId, message)
@@ -1402,7 +1402,7 @@ class ShareAccessibilityService : AccessibilityService() {
         if (restored) {
             ServiceStatus.update(this, message, AutomationStage.SHOW_RESULT)
         } else {
-            finishOverlaySession(sessionId, "悬浮窗恢复失败，本次会话已结束")
+            finishOverlaySession(sessionId, "悬浮窗未能恢复，本次分享已结束")
         }
     }
 
@@ -1420,7 +1420,7 @@ class ShareAccessibilityService : AccessibilityService() {
         val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
         val clipboard = getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(ClipData.newPlainText("净化链接", cleanedUrl))
-        overlayController.updateStatus(sessionId, "净化链接已复制")
+        overlayController.updateStatus(sessionId, "已复制")
     }
 
     private fun openFullResult(sessionId: String) {
@@ -1434,13 +1434,13 @@ class ShareAccessibilityService : AccessibilityService() {
             return
         }
         pendingResultPageSessionId = sessionId
-        overlayController.updateStatus(sessionId, "正在打开完整结果页…")
+        overlayController.updateStatus(sessionId, "正在打开结果页…")
         val launchDelay = if (attachLaunchBridge()) LAUNCH_BRIDGE_SETTLE_MS else 0L
         val timeout = Runnable {
             if (pendingResultPageSessionId != sessionId) return@Runnable
             cancelResultPageLaunch(sessionId)
-            overlayController.updateStatus(sessionId, "系统未允许打开完整结果页，请重试")
-            ServiceStatus.update(this, "完整结果页未能打开，净化结果仍在悬浮窗中", AutomationStage.SHOW_RESULT)
+            overlayController.updateStatus(sessionId, "结果页没有打开，请重试")
+            ServiceStatus.update(this, "结果页没有打开，净化结果仍在悬浮窗中", AutomationStage.SHOW_RESULT)
         }
         resultPageLaunchTimeout = timeout
         handler.postDelayed(timeout, launchDelay + RESULT_PAGE_LAUNCH_TIMEOUT_MS)
@@ -1450,7 +1450,7 @@ class ShareAccessibilityService : AccessibilityService() {
             if (launchError != null) {
                 if (isDebugBuild) Log.w(TAG, "Unable to open full result", launchError)
                 cancelResultPageLaunch(sessionId)
-                overlayController.updateStatus(sessionId, "完整结果页打开失败，请重试")
+                overlayController.updateStatus(sessionId, "结果页没有打开，请重试")
                 ServiceStatus.update(
                     this,
                     "完整结果页打开失败，净化结果仍在悬浮窗中",
@@ -1466,7 +1466,7 @@ class ShareAccessibilityService : AccessibilityService() {
         cancelOverlayWorkers()
         overlayController.remove(sessionId)
         applyAccessibilityEventScope()
-        ServiceStatus.update(this, "已打开完整净化结果页", AutomationStage.SHOW_RESULT)
+        ServiceStatus.update(this, "已打开结果页", AutomationStage.SHOW_RESULT)
         return true
     }
 

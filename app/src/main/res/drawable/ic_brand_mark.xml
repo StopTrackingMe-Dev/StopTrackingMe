@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="52"
+    android:viewportHeight="52">
+    <group
+        android:translateX="-28"
+        android:translateY="-28">
+        <group
+            android:name="link_eraser"
+            android:pivotX="0"
+            android:pivotY="0"
+            android:rotation="-45"
+            android:translateX="54"
+            android:translateY="53">
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M-8,-13H-12A13,13 0,0 0,-12,13H-8"
+                android:strokeColor="#FF000000"
+                android:strokeLineCap="round"
+                android:strokeWidth="7.2" />
+            <path
+                android:fillColor="#00000000"
+                android:pathData="M8,-13H12A13,13 0,0 1,12,13H8"
+                android:strokeColor="#FF000000"
+                android:strokeLineCap="round"
+                android:strokeWidth="7.2" />
+            <path
+                android:fillColor="#FF000000"
+                android:pathData="M-8.5,-5.5H8.5A3,3 0,0 1,11.5,-2.5V2.5A3,3 0,0 1,8.5,5.5H-8.5A3,3 0,0 1,-11.5,2.5V-2.5A3,3 0,0 1,-8.5,-5.5Z" />
+        </group>
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M58,76H65"
+            android:strokeColor="#FF000000"
+            android:strokeLineCap="round"
+            android:strokeWidth="2.7" />
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M70,74.6A1.4,1.4 0,1 1,70,77.4A1.4,1.4 0,1 1,70,74.6Z" />
+    </group>
+</vector>

@@ -97,7 +97,7 @@ class QrImageActivity : ComponentActivity() {
 
     private val requestLegacyWritePermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) saveCurrentImage() else updateActionMessage("未授予相册写入权限，图片尚未保存")
+            if (granted) saveCurrentImage() else updateActionMessage("没有相册权限，图片未保存")
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -144,7 +144,7 @@ class QrImageActivity : ComponentActivity() {
 
         val uri = extractContentUri(intent)
         if (uri == null) {
-            state = QrImageProcessingState.Failure("没有收到可读取的 content:// 图片")
+            state = QrImageProcessingState.Failure("没有收到可读取的图片")
         } else {
             scanSource(uri)
         }
@@ -195,7 +195,7 @@ class QrImageActivity : ComponentActivity() {
             } catch (error: Exception) {
                 state = QrImageProcessingState.Failure(safeError(error))
             } catch (_: OutOfMemoryError) {
-                state = QrImageProcessingState.Failure("设备内存不足，请先缩小图片")
+                state = QrImageProcessingState.Failure("图片太大，请先缩小后再试")
             }
         }
     }
@@ -214,7 +214,7 @@ class QrImageActivity : ComponentActivity() {
     private fun sanitize(candidate: QrImageCandidate, selectedRule: UrlRuleCandidate) {
         val loaded = sourceImage ?: return
         if (loaded.bitmap.isRecycled) {
-            state = QrImageProcessingState.Failure("原始图片已释放，请重新选择图片")
+            state = QrImageProcessingState.Failure("原图已失效，请重新选择图片")
             return
         }
         state = QrImageProcessingState.Sanitizing(selectedRule.installed.rule.displayName)
@@ -228,7 +228,7 @@ class QrImageActivity : ComponentActivity() {
             } catch (error: Exception) {
                 QrPipelineOutcome.Failure("处理图片失败：${safeError(error)}")
             } catch (_: OutOfMemoryError) {
-                QrPipelineOutcome.Failure("处理图片时内存不足，请先缩小图片")
+                QrPipelineOutcome.Failure("图片太大，请先缩小后再试")
             }
             if (loaded.bitmap.isRecycled) sourceImage = null
             state = when (outcome) {
@@ -255,7 +255,7 @@ class QrImageActivity : ComponentActivity() {
             sharedOutputFile = image.file
             UsageReporter.recordShare(this)
         }.onFailure { error ->
-            updateActionMessage("无法打开系统分享：${safeError(error)}")
+            updateActionMessage("无法打开分享面板：${safeError(error)}")
         }
     }
 
@@ -284,7 +284,7 @@ class QrImageActivity : ComponentActivity() {
             }
             fileActionBusy = false
             outcome.fold(
-                onSuccess = { updateActionMessage("已保存到 Pictures/StopTracking") },
+                onSuccess = { updateActionMessage("已保存到相册（Pictures/StopTracking）") },
                 onFailure = { error ->
                     updateActionMessage("保存失败：${safeError(error)}")
                 },
@@ -305,7 +305,7 @@ class QrImageActivity : ComponentActivity() {
 
     companion object {
         fun createIntent(context: Context, uri: Uri, mimeType: String?): Intent {
-            require(uri.scheme == ContentResolver.SCHEME_CONTENT) { "仅支持 content:// 图片" }
+            require(uri.scheme == ContentResolver.SCHEME_CONTENT) { "无法读取这张图片" }
             val clipData = ClipData.newRawUri("待净化二维码图片", uri)
             return Intent(context, QrImageActivity::class.java)
                 .setAction(Intent.ACTION_SEND)
@@ -355,7 +355,7 @@ private fun QrImageUnavailableScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text("净化二维码图片", style = MaterialTheme.typography.headlineMedium)
-            Text("当前安装的是 Minimal 精简版，不包含二维码图片识别功能。请在设置中的应用更新里切换到 Full 完整版。")
+            Text("二维码图片净化只在完整版中提供。可在「设置 › 应用更新」中切换到完整版。")
             Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
                 Text("返回")
             }
@@ -387,16 +387,16 @@ private fun QrImageScreen(
         ) {
             Text("净化二维码图片", style = MaterialTheme.typography.headlineMedium)
             when (state) {
-                QrImageProcessingState.Scanning -> ProgressBlock("正在离线识别二维码…")
+                QrImageProcessingState.Scanning -> ProgressBlock("正在识别图片中的二维码…")
                 is QrImageProcessingState.Sanitizing -> ProgressBlock(
-                    "正在使用${state.ruleName}规则展开并净化链接，再重绘和复扫…",
+                    "正在净化二维码中的链接…",
                 )
                 is QrImageProcessingState.Selection -> {
                     Text(
                         if (state.candidates.size > 1) {
-                            "识别到 ${state.candidates.size} 个二维码。请在图片或列表中选择一个，本次只替换所选二维码。"
+                            "找到 ${state.candidates.size} 个二维码，请点选要替换的一个。"
                         } else {
-                            "请选择要替换的二维码。"
+                            "请确认要替换的二维码。"
                         },
                     )
                     sourceBitmap?.let { bitmap ->
@@ -432,7 +432,7 @@ private fun QrImageScreen(
                 }
                 is QrImageProcessingState.Failure -> {
                     Text(state.message, color = MaterialTheme.colorScheme.error)
-                    Text("未生成、保存或分享任何结果图片。")
+                    Text("没有生成新图片，原图保持不变。")
                     OutlinedButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
                         Text("关闭")
                     }
@@ -447,7 +447,7 @@ private fun QrImageScreen(
             title = { Text("选择净化规则") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("多条已安装规则支持这个二维码，请明确选择本次使用的规则。")
+                    Text("有多条规则可以处理这个二维码，请选择本次使用哪一条。")
                     pending.candidate.ruleCandidates.forEach { rule ->
                         OutlinedButton(
                             onClick = { onRuleSelected(pending.candidate, rule) },
@@ -498,7 +498,7 @@ private fun CandidateCard(
                 when (candidate.ruleCandidates.size) {
                     0 -> QrCandidateResolver.unsupportedMessage(candidate)
                     1 -> "匹配规则：${candidate.ruleCandidates.single().installed.rule.displayName}"
-                    else -> "匹配到 ${candidate.ruleCandidates.size} 条规则，需要选择"
+                    else -> "有 ${candidate.ruleCandidates.size} 条规则可用，需要选择"
                 },
                 color = if (candidate.ruleCandidates.isEmpty()) {
                     MaterialTheme.colorScheme.error
@@ -615,7 +615,7 @@ private fun PreviewContent(
 ) {
     val result = state.result
     val preview = remember(result.image.bitmap) { result.image.bitmap.asImageBitmap() }
-    Text("已通过编码后离线复扫验证。原图未被覆盖，输出文件不含原始 EXIF 元数据。")
+    Text("新二维码已验证可正常扫描。原图不会被修改，新图片也不含拍摄信息等元数据。")
     Image(
         bitmap = preview,
         contentDescription = "替换后的二维码图片",
@@ -629,7 +629,7 @@ private fun PreviewContent(
         enabled = !fileActionBusy,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text("系统分享")
+        Text("分享图片")
     }
     Button(
         onClick = onSave,
@@ -643,14 +643,14 @@ private fun PreviewContent(
     }
 
     Text("处理详情", style = MaterialTheme.typography.titleLarge)
-    DetailCard("原二维码内容", result.rawValue)
-    result.cleanResult.expandedUrl?.let { DetailCard("展开后的链接", it) }
+    DetailCard("原二维码链接", result.rawValue)
+    result.cleanResult.expandedUrl?.let { DetailCard("短链展开后", it) }
     DetailCard("净化链接", result.image.cleanedUrl)
     if (result.cleanResult.removedParameters.isNotEmpty()) {
-        DetailCard("已删除的参数", result.cleanResult.removedParameters.joinToString("、"))
+        DetailCard("已去除的参数", result.cleanResult.removedParameters.joinToString("、"))
     }
     result.cleanResult.warnings.forEach { warning ->
-        Text("提示：$warning", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(warning, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     PrivacyAttributionNotice()
     Spacer(Modifier.height(4.dp))
@@ -675,7 +675,7 @@ private fun DetailCard(label: String, value: String) {
 @Composable
 private fun PrivacyAttributionNotice() {
     Text(
-        "说明：本功能可删除显式追踪参数和平台分享短链，但无法承诺平台不会根据内容 ID、IP 地址或服务器日志进行归因。图片识别和重绘均在设备端完成；只有展开短链及规则要求的请求会联网。",
+        "识别和生成图片都在手机上完成，只有展开短链接时才会联网。去除追踪参数能减少被追踪，但平台仍可能通过内容编号或 IP 地址等方式识别来源。",
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.bodySmall,
     )

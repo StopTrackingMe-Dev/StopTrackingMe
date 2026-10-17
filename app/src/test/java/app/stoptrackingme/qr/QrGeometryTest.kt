@@ -96,7 +96,7 @@ class QrGeometryTest {
         )
 
         assertTrue(result is QrGeometryResult.Invalid)
-        assertTrue((result as QrGeometryResult.Invalid).message.contains("相对边"))
+        assertTrue((result as QrGeometryResult.Invalid).message.contains("透视"))
     }
 
     @Test

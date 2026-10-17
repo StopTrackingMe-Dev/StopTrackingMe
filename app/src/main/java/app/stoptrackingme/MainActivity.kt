@@ -16,19 +16,31 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -37,12 +49,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -65,6 +80,18 @@ import app.stoptrackingme.link.UrlRuleResolution
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
 import app.stoptrackingme.session.ShareSessionStore
+import app.stoptrackingme.ui.components.BannerTone
+import app.stoptrackingme.ui.components.ChoiceGroup
+import app.stoptrackingme.ui.components.ChoicePill
+import app.stoptrackingme.ui.components.ExpandableDetails
+import app.stoptrackingme.ui.components.HintText
+import app.stoptrackingme.ui.components.IconBadge
+import app.stoptrackingme.ui.components.MessageBanner
+import app.stoptrackingme.ui.components.PageHeader
+import app.stoptrackingme.ui.components.QuickActionCard
+import app.stoptrackingme.ui.components.SectionCard
+import app.stoptrackingme.ui.components.StatusChip
+import app.stoptrackingme.ui.components.StepRow
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import app.stoptrackingme.update.AppUpdateCard
 import app.stoptrackingme.update.AppUpdateCache
@@ -92,7 +119,8 @@ class MainActivity : ComponentActivity() {
     private val updateClient = AppUpdateClient()
     private val backgroundRunGuide = BackgroundRunGuides.current()
     private var serviceEnabled by mutableStateOf(false)
-    private var serviceState by mutableStateOf("尚未收到服务状态")
+    private var serviceConnected by mutableStateOf(false)
+    private var serviceState by mutableStateOf("")
     private var batteryOptimizationDisabled by mutableStateOf(true)
     private var firstRunGuideVisible by mutableStateOf(false)
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
@@ -134,9 +162,9 @@ class MainActivity : ComponentActivity() {
             operationMessage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                 getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_BROWSER)
             ) {
-                "已设为默认网页处理应用"
+                "已设为默认打开方式"
             } else {
-                "未更改默认网页处理应用；仍可在“打开方式”中选择本应用"
+                "未更改默认打开方式；打开链接时仍可手动选择本应用"
             }
         }
 
@@ -148,7 +176,7 @@ class MainActivity : ComponentActivity() {
                 launchSystemInstaller(update)
             } else {
                 updateStatus = AppUpdateStatus.Ready(update)
-                operationMessage = "尚未允许本应用安装更新，可再次点击“安装更新”重试"
+                operationMessage = "需要允许安装权限才能更新，可再次点击“安装更新”"
             }
         }
 
@@ -196,34 +224,59 @@ class MainActivity : ComponentActivity() {
                 ) { padding ->
                     when (selectedSection) {
                         MainSection.HOME -> MainPage(modifier = Modifier.padding(padding)) {
-                            Text("净链分享助手", style = MaterialTheme.typography.headlineMedium)
-                            Text("快速启用自动净链，或直接处理剪贴板中的分享链接。")
+                            PageHeader(
+                                title = stringResource(R.string.app_name),
+                                subtitle = "分享链接前，自动去掉追踪参数",
+                                leading = {
+                                    Image(
+                                        painter = painterResource(R.drawable.ic_brand_badge),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(52.dp),
+                                    )
+                                },
+                            )
                             OperationMessage(operationMessage)
 
                             AccessibilityServiceCard(
                                 enabled = serviceEnabled,
+                                connected = serviceConnected,
                                 status = serviceState,
                                 onOpenSettings = {
                                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                                 },
                             )
 
-                            ClipboardEntryCard(
-                                enabled = !busy,
-                                onReadClipboard = ::readClipboard,
-                            )
-
-                            if (QrFeature.isAvailable) {
-                                QrImageEntryCard(
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                QuickActionCard(
+                                    icon = R.drawable.ic_clipboard,
+                                    title = "净化剪贴板",
+                                    subtitle = "处理刚刚复制的链接",
                                     enabled = !busy,
-                                    onPickImage = ::launchQrImagePicker,
+                                    onClick = ::readClipboard,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                if (QrFeature.isAvailable) {
+                                    QuickActionCard(
+                                        icon = R.drawable.ic_qr_code,
+                                        title = "净化二维码",
+                                        subtitle = "替换图片里的追踪二维码",
+                                        enabled = !busy,
+                                        onClick = ::launchQrImagePicker,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
+                            HintText("也可以在其他应用中选择「分享 › ${stringResource(R.string.app_name)}」。")
                         }
 
                         MainSection.RULES -> MainPage(modifier = Modifier.padding(padding)) {
-                            Text("规则", style = MaterialTheme.typography.headlineMedium)
-                            Text("规则不会随 APK 内置；请在这里管理本地导入和 HTTPS 订阅。")
+                            PageHeader(
+                                title = "规则",
+                                subtitle = "规则决定哪些应用的链接可以被净化",
+                            )
                             OperationMessage(operationMessage)
 
                             RuleCatalogSection(
@@ -237,7 +290,7 @@ class MainActivity : ComponentActivity() {
                                 onSelectRule = { packageName, key ->
                                     repository.chooseActiveRule(packageName, key)
                                     reloadCatalog()
-                                    operationMessage = "已选择唯一活动规则"
+                                    operationMessage = "已切换规则"
                                 },
                                 onCopyTriggerModeChange = { installed, mode ->
                                     CopyTriggerPreferences.set(this@MainActivity, installed, mode)
@@ -246,36 +299,42 @@ class MainActivity : ComponentActivity() {
                                         CopyTriggerMode.AUTOMATIC ->
                                             "${installed.rule.displayName} 将自动复制并净化链接"
                                         CopyTriggerMode.USER_CONFIRMATION ->
-                                            "${installed.rule.displayName} 将等待你点击悬浮按钮后再复制"
+                                            "${installed.rule.displayName} 将在你点按悬浮按钮后再复制链接"
                                     }
+                                },
+                                onOpenPublicRules = {
+                                    openExternalLink(PUBLIC_RULES_URL, "查看公开规则")
                                 },
                             )
 
-                            Text("规则订阅", style = MaterialTheme.typography.titleLarge)
-                            Text("可从本地导入规则，或添加每天首次启动程序时自动更新的 HTTPS 订阅。")
-                            OutlinedButton(
-                                onClick = {
+                            AddRuleCard(
+                                remoteUrl = remoteUrl,
+                                busy = busy,
+                                onRemoteUrlChange = { remoteUrl = it },
+                                onImportLocal = {
                                     importRuleDocument.launch(
                                         arrayOf("application/json", "text/json"),
                                     )
                                 },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("从本地导入 JSON")
-                            }
+                                onPreviewSubscription = ::previewSubscription,
+                            )
+
                             val localRuleGroups = catalog.installedRules
                                 .filter { it.rule.source.kind == RuleSourceKind.LOCAL }
                                 .groupBy { it.rule.source.reference }
-                            if (localRuleGroups.isNotEmpty()) {
-                                Text("已导入本地规则", style = MaterialTheme.typography.titleMedium)
+                            if (localRuleGroups.isNotEmpty() || catalog.subscriptions.isNotEmpty()) {
+                                SectionLabel("规则来源")
                                 localRuleGroups.forEach { (reference, installedRules) ->
                                     val ruleNames = installedRules
                                         .map { it.rule.displayName }
                                         .distinct()
                                         .joinToString("、")
-                                    LocalRuleRow(
-                                        ruleNames = ruleNames,
+                                    RuleSourceRow(
+                                        icon = R.drawable.ic_folder,
+                                        title = ruleNames,
+                                        subtitle = "本地导入",
                                         enabled = !busy,
+                                        removeLabel = "删除",
                                         onRemove = {
                                             pendingRuleRemoval = PendingRuleRemoval.Local(
                                                 reference = reference,
@@ -284,38 +343,13 @@ class MainActivity : ComponentActivity() {
                                         },
                                     )
                                 }
-                            }
-                            OutlinedTextField(
-                                value = remoteUrl,
-                                onValueChange = { remoteUrl = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("HTTPS 规则订阅地址") },
-                                singleLine = true,
-                            )
-                            Button(
-                                onClick = ::previewSubscription,
-                                enabled = !busy && remoteUrl.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                if (busy) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.padding(2.dp),
-                                        strokeWidth = 2.dp,
-                                    )
-                                } else {
-                                    Text("下载预览并确认信任")
-                                }
-                            }
-
-                            if (catalog.subscriptions.isNotEmpty()) {
-                                Text(
-                                    "已有远程订阅",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
                                 catalog.subscriptions.forEach { url ->
-                                    SubscriptionRow(
-                                        url = url,
+                                    RuleSourceRow(
+                                        icon = R.drawable.ic_cloud,
+                                        title = displayHost(url),
+                                        subtitle = "订阅 · 每天自动更新",
                                         enabled = !busy,
+                                        removeLabel = "取消订阅",
                                         onRemove = {
                                             pendingRuleRemoval = PendingRuleRemoval.Remote(url)
                                         },
@@ -324,15 +358,15 @@ class MainActivity : ComponentActivity() {
                             }
 
                             catalog.loadErrors.forEach {
-                                Text("规则错误：$it", color = MaterialTheme.colorScheme.error)
+                                MessageBanner("有规则暂时无法使用：$it", BannerTone.ERROR)
                             }
                         }
 
                         MainSection.SETTINGS -> MainPage(modifier = Modifier.padding(padding)) {
-                            Text("设置", style = MaterialTheme.typography.headlineMedium)
-                            Text("管理后台运行、应用更新、缓存、链接打开方式和隐私选项。")
+                            PageHeader(title = "设置")
                             OperationMessage(operationMessage)
 
+                            SectionLabel("自动净化")
                             BackgroundRunSettingsCard(
                                 guide = backgroundRunGuide,
                                 batteryOptimizationDisabled = batteryOptimizationDisabled,
@@ -341,19 +375,25 @@ class MainActivity : ComponentActivity() {
                                 onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
                             )
 
-                            FirstRunGuideSettingsCard(
-                                onOpenGuide = {
-                                    operationMessage = null
-                                    firstRunGuideVisible = true
+                            ResultPresentationCard(
+                                resultPresentationMode = resultPresentationMode,
+                                onResultPresentationModeChange = { mode ->
+                                    ResultPresentationPreferences.set(this@MainActivity, mode)
+                                    resultPresentationMode = mode
                                 },
                             )
 
+                            DefaultBrowserCard(
+                                enabled = !busy,
+                                onRequestBrowserRole = ::requestDefaultBrowserRole,
+                            )
+
+                            SectionLabel("应用")
                             AppUpdateCard(
                                 status = updateStatus,
                                 currentVariant = currentVariant,
                                 targetVariant = updateTargetVariant,
                                 currentVersionName = BuildConfig.VERSION_NAME,
-                                currentVersionCode = BuildConfig.VERSION_CODE,
                                 onSelectVariant = { variant ->
                                     updateTargetVariant = variant
                                     checkForUpdates(
@@ -383,7 +423,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onInstall = ::requestInstallUpdate,
                                 onOpenRelease = { url ->
-                                    openExternalLink(url, "查看 StopTrackingMe 发布说明")
+                                    openExternalLink(url, "查看更新说明")
                                 },
                             )
 
@@ -395,60 +435,49 @@ class MainActivity : ComponentActivity() {
                                 onClear = ::clearCache,
                             )
 
-                            DefaultBrowserCard(
-                                enabled = !busy,
-                                onRequestBrowserRole = ::requestDefaultBrowserRole,
-                            )
-
-                            ResultPresentationCard(
-                                resultPresentationMode = resultPresentationMode,
-                                onResultPresentationModeChange = { mode ->
-                                    ResultPresentationPreferences.set(this@MainActivity, mode)
-                                    resultPresentationMode = mode
+                            FirstRunGuideSettingsCard(
+                                onOpenGuide = {
+                                    operationMessage = null
+                                    firstRunGuideVisible = true
                                 },
                             )
 
-                            ShareSdkPrivacyCard(
-                                sdkName = "QQ 互联 SDK",
-                                consentGranted = qqSdkConsentGranted,
-                                onOpenPolicy = {
-                                    openExternalLink(
-                                        QQSdkConsent.PRIVACY_POLICY_URL,
-                                        "查看 QQ 互联 SDK 隐私说明",
-                                    )
-                                },
-                                onRevoke = {
-                                    QQSdkConsent.revoke(this@MainActivity)
-                                    qqSdkConsentGranted = false
-                                    operationMessage =
-                                        "已撤回 QQ SDK 授权；下次分享前会重新征求同意"
-                                },
-                            )
-
-                            ShareSdkPrivacyCard(
-                                sdkName = "微信 OpenSDK",
-                                consentGranted = weChatSdkConsentGranted,
-                                onOpenPolicy = {
-                                    openExternalLink(WeChatSdkConsent.PRIVACY_POLICY_URL, "查看微信 OpenSDK 隐私说明")
-                                },
-                                onRevoke = {
-                                    WeChatSdkConsent.revoke(this@MainActivity)
-                                    weChatSdkConsentGranted = false
-                                    operationMessage = "已撤回微信 SDK 授权；下次分享前会重新征求同意"
-                                },
-                            )
-
-                            UsageReportingPrivacyCard(
-                                consent = usageReportingConsent,
-                                onOpenPolicy = {
+                            PrivacyCard(
+                                usageReportingConsent = usageReportingConsent,
+                                qqSdkConsentGranted = qqSdkConsentGranted,
+                                weChatSdkConsentGranted = weChatSdkConsentGranted,
+                                onOpenUsagePolicy = {
                                     openExternalLink(
                                         UsageReporter.PRIVACY_POLICY_URL,
-                                        "查看完整隐私政策",
+                                        "查看隐私政策",
                                     )
                                 },
-                                onGrant = ::grantUsageReporting,
-                                onDeny = ::denyUsageReporting,
+                                onGrantUsage = ::grantUsageReporting,
+                                onDenyUsage = ::denyUsageReporting,
+                                onOpenQQPolicy = {
+                                    openExternalLink(
+                                        QQSdkConsent.PRIVACY_POLICY_URL,
+                                        "查看 QQ 分享隐私说明",
+                                    )
+                                },
+                                onRevokeQQ = {
+                                    QQSdkConsent.revoke(this@MainActivity)
+                                    qqSdkConsentGranted = false
+                                    operationMessage = "已撤回 QQ 分享授权，下次使用时会重新询问"
+                                },
+                                onOpenWeChatPolicy = {
+                                    openExternalLink(
+                                        WeChatSdkConsent.PRIVACY_POLICY_URL,
+                                        "查看微信分享隐私说明",
+                                    )
+                                },
+                                onRevokeWeChat = {
+                                    WeChatSdkConsent.revoke(this@MainActivity)
+                                    weChatSdkConsentGranted = false
+                                    operationMessage = "已撤回微信分享授权，下次使用时会重新询问"
+                                },
                             )
+                            HintText("${stringResource(R.string.app_name)} ${BuildConfig.VERSION_NAME}")
                         }
                     }
                 }
@@ -477,7 +506,7 @@ class MainActivity : ComponentActivity() {
                         onOpenRules = {
                             openExternalLink(
                                 PUBLIC_RULES_URL,
-                                "查看 StopTrackingMe 公开规则",
+                                "查看公开规则",
                             )
                         },
                         onComplete = ::completeFirstRunGuide,
@@ -508,7 +537,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenRelease = release.releasePageUrl?.let { url ->
                                 {
-                                    openExternalLink(url, "查看 StopTrackingMe 发布说明")
+                                    openExternalLink(url, "查看更新说明")
                                 }
                             },
                         )
@@ -617,7 +646,7 @@ class MainActivity : ComponentActivity() {
         UsageReporter.grant(this)
         finishUsageReportingChoice(
             consent = UsageReportingConsent.GRANTED,
-            message = "已允许隐私保护的使用统计",
+            message = "已开启匿名使用统计",
         )
     }
 
@@ -625,7 +654,7 @@ class MainActivity : ComponentActivity() {
         UsageReporter.deny(this)
         finishUsageReportingChoice(
             consent = UsageReportingConsent.DENIED,
-            message = "使用统计已关闭，不影响任何功能",
+            message = "已关闭使用统计，所有功能照常使用",
         )
     }
 
@@ -673,12 +702,14 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshState() {
         serviceEnabled = ServiceStatus.isEnabled(this)
+        serviceConnected = ServiceStatus.connected
         serviceState = when {
-            !serviceEnabled -> "尚未授权或授权已关闭，请在系统设置中开启无障碍服务。"
-            !ServiceStatus.connected -> "已授权，服务尚未连接。若解锁后仍未恢复，请在设置页检查自启动和电池限制；必要时关闭再开启无障碍服务。"
+            !serviceEnabled -> "在支持的应用中点分享，即可自动得到干净的链接。"
+            !serviceConnected -> "服务已授权但还没有运行。可在系统设置中关闭后重新开启；如果经常失效，请在「设置 › 后台运行」中允许自启动。"
             else -> getSharedPreferences(ServiceStatus.PREFERENCES, MODE_PRIVATE)
-                .getString(ServiceStatus.KEY_MESSAGE, "服务已连接")
+                .getString(ServiceStatus.KEY_MESSAGE, null)
                 .orEmpty()
+                .ifBlank { ServiceStatus.READY_MESSAGE }
         }
     }
 
@@ -689,7 +720,7 @@ class MainActivity : ComponentActivity() {
     private fun completeFirstRunGuide() {
         FirstRunPreferences.markSetupGuideCompleted(this)
         firstRunGuideVisible = false
-        operationMessage = "首次使用引导已完成；之后可在设置中重新查看"
+        operationMessage = "设置完成，之后可在「设置 › 使用引导」中再次查看"
         continueStartupActionsIfAllowed()
     }
 
@@ -698,15 +729,15 @@ class MainActivity : ComponentActivity() {
             BackgroundRunSettingsNavigator.openBatteryOptimizationOrFallback(this)
         ) {
             BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
-                "请在电池优化列表中找到本应用并设为“不优化”；厂商自启动仍需单独确认"
+                "请在列表中找到本应用并设为“不优化”；自启动权限需要另外开启"
             BackgroundSettingsDestination.APP_DETAILS ->
-                "未能打开电池优化列表，已打开本应用详情；请进入“电池”并选择“无限制”"
+                "已打开本应用详情，请进入“电池”并选择“无限制”"
             BackgroundSettingsDestination.GENERAL_SETTINGS ->
-                "未能打开应用专属页面，已打开系统设置；请搜索“电池优化”"
+                "已打开系统设置，请搜索“电池优化”"
             BackgroundSettingsDestination.NONE ->
-                "无法打开系统电池设置，请按下方说明手动设置"
+                "无法自动打开，请按下方步骤手动设置"
             BackgroundSettingsDestination.OEM_PAGE ->
-                "请按下方说明完成厂商后台设置"
+                "请按下方步骤完成设置"
         }
     }
 
@@ -718,20 +749,20 @@ class MainActivity : ComponentActivity() {
             )
         ) {
             BackgroundSettingsDestination.OEM_PAGE ->
-                "已打开${backgroundRunGuide.displayName}相关页面；请找到本应用并按下方步骤设置"
+                "请找到本应用，并按下方步骤设置"
             BackgroundSettingsDestination.APP_DETAILS -> if (
                 backgroundRunGuide.hasDedicatedSettingsTargets
             ) {
-                "当前系统没有兼容的厂商入口，已回退到本应用详情；请进入“电池”并按下方步骤设置"
+                "已打开本应用详情，请进入“电池”并按下方步骤设置"
             } else {
-                "已打开本应用详情；请进入“电池/应用电池用量”并按下方步骤设置"
+                "已打开本应用详情，请进入“电池”并按下方步骤设置"
             }
             BackgroundSettingsDestination.GENERAL_SETTINGS ->
-                "已打开系统设置；请按下方路径或搜索关键词完成设置"
+                "已打开系统设置，请按下方步骤或搜索关键词完成设置"
             BackgroundSettingsDestination.NONE ->
-                "无法打开系统设置，请按下方说明手动设置"
+                "无法自动打开，请按下方步骤手动设置"
             BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
-                "请在电池优化列表中找到本应用并设为“不优化”"
+                "请在列表中找到本应用并设为“不优化”"
         }
     }
 
@@ -740,15 +771,15 @@ class MainActivity : ComponentActivity() {
             BackgroundRunSettingsNavigator.openAppDetailsOrFallback(this)
         ) {
             BackgroundSettingsDestination.APP_DETAILS ->
-                "已打开本应用详情；请进入“电池/应用电池用量”并选择“无限制”"
+                "已打开本应用详情，请进入“电池”并选择“无限制”"
             BackgroundSettingsDestination.GENERAL_SETTINGS ->
-                "已打开系统设置；请搜索本应用并进入“电池/应用电池用量”"
+                "已打开系统设置，请找到本应用并进入“电池”"
             BackgroundSettingsDestination.NONE ->
-                "无法打开系统设置，请按下方说明手动设置"
+                "无法自动打开，请按下方步骤手动设置"
             BackgroundSettingsDestination.OEM_PAGE ->
                 "请找到本应用并按下方步骤设置"
             BackgroundSettingsDestination.BATTERY_OPTIMIZATION_LIST ->
-                "请在电池优化列表中找到本应用并设为“不优化”"
+                "请在列表中找到本应用并设为“不优化”"
         }
     }
 
@@ -774,7 +805,7 @@ class MainActivity : ComponentActivity() {
                 ),
             )
         }.onFailure { error ->
-            operationMessage = "无法打开二维码图片：${displayError(error)}"
+            operationMessage = "无法打开这张图片：${displayError(error)}"
         }
     }
 
@@ -782,7 +813,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
             pickQrImage.launch(createQrImagePickerIntent(this))
         }.onFailure { error ->
-            operationMessage = "无法打开系统相册：${displayError(error)}"
+            operationMessage = "无法打开相册：${displayError(error)}"
         }
     }
 
@@ -807,7 +838,7 @@ class MainActivity : ComponentActivity() {
         val uri = incoming.data ?: return
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
-            operationMessage = "仅支持 HTTP/HTTPS 网页链接"
+            operationMessage = "只能处理网页链接"
             return
         }
         resolveLinkInput(uri.toString(), SOURCE_WEB_INTENT)
@@ -815,7 +846,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleSendIntent(incoming: Intent) {
         if (incoming.type != "text/plain") {
-            operationMessage = "仅支持分享纯文本中的 HTTP/HTTPS 链接"
+            operationMessage = "只能处理文字中的网页链接"
             return
         }
         val sharedText = incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty()
@@ -829,15 +860,15 @@ class MainActivity : ComponentActivity() {
     ) {
         operationMessage = null
         when (val resolution = UrlRuleMatcher.resolve(sourceText, repository.currentCatalog().installedRules)) {
-            UrlRuleResolution.EmptyInput -> if (reportMissing) operationMessage = "剪贴板为空"
+            UrlRuleResolution.EmptyInput -> if (reportMissing) operationMessage = "剪贴板是空的"
             UrlRuleResolution.InputTooLarge -> if (reportMissing) {
-                operationMessage = "输入内容超过规则允许的安全长度"
+                operationMessage = "内容太长，无法识别其中的链接"
             }
             UrlRuleResolution.UrlNotFound -> if (reportMissing) {
-                operationMessage = "没有找到 HTTP/HTTPS 链接"
+                operationMessage = "没有找到网页链接"
             }
             is UrlRuleResolution.Unsupported -> {
-                operationMessage = "没有支持 ${displayHost(resolution.url)} 的净化规则"
+                operationMessage = "暂不支持 ${displayHost(resolution.url)} 的链接"
                 pendingUnsupportedUrl = resolution.url
             }
             is UrlRuleResolution.Active -> {
@@ -855,11 +886,11 @@ class MainActivity : ComponentActivity() {
         candidate: UrlRuleCandidate,
     ) {
         if (busy) {
-            operationMessage = "已有链接正在处理，请稍候"
+            operationMessage = "正在处理上一个链接，请稍候"
             return
         }
         busy = true
-        operationMessage = "正在使用${candidate.installed.rule.displayName}规则处理链接"
+        operationMessage = "正在净化链接…"
         AutomationRuntime.current().sessionId?.let { activeAutomationSession ->
             AutomationRuntime.reset(activeAutomationSession)
             ShareSessionStore.clear(activeAutomationSession)
@@ -883,7 +914,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onFailure = {
                         ShareSessionStore.clear(sessionId)
-                        operationMessage = "链接处理失败：${displayError(it)}"
+                        operationMessage = "净化失败：${displayError(it)}"
                     },
                 )
             }
@@ -894,9 +925,9 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = getSystemService(RoleManager::class.java)
             if (!roleManager.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
-                operationMessage = "当前系统不提供默认浏览器角色"
+                operationMessage = "当前系统不支持更改默认打开方式"
             } else if (roleManager.isRoleHeld(RoleManager.ROLE_BROWSER)) {
-                operationMessage = "本应用已经是默认网页处理应用"
+                operationMessage = "本应用已是默认打开方式"
             } else {
                 requestBrowserRole.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
             }
@@ -911,7 +942,7 @@ class MainActivity : ComponentActivity() {
 
     private fun openExternalLink(
         url: String,
-        title: String = "使用其他应用打开原链接",
+        title: String = "选择打开方式",
     ) {
         val chooser = ExternalLinkIntentFactory.createChooser(
             context = this,
@@ -919,11 +950,11 @@ class MainActivity : ComponentActivity() {
             title = title,
         )
         if (chooser == null) {
-            operationMessage = "没有找到其他可以打开此链接的应用"
+            operationMessage = "没有找到可以打开这个链接的应用"
             return
         }
         runCatching { startActivity(chooser) }
-            .onFailure { operationMessage = "系统无法打开此链接" }
+            .onFailure { operationMessage = "无法打开这个链接" }
     }
 
     private fun importLocalRule(uri: Uri) {
@@ -939,7 +970,7 @@ class MainActivity : ComponentActivity() {
                 busy = false
                 catalog = repository.currentCatalog()
                 operationMessage = outcome.fold(
-                    onSuccess = { "本地规则已校验并导入（${it.rules.size} 条）" },
+                    onSuccess = { "已导入 ${it.rules.size} 条规则" },
                     onFailure = { "导入失败：${displayError(it)}" },
                 )
             }
@@ -955,7 +986,7 @@ class MainActivity : ComponentActivity() {
                 busy = false
                 outcome.fold(
                     onSuccess = { remotePreview = it },
-                    onFailure = { operationMessage = "订阅预览失败：${displayError(it)}" },
+                    onFailure = { operationMessage = "无法读取这个订阅：${displayError(it)}" },
                 )
             }
         }
@@ -972,9 +1003,9 @@ class MainActivity : ComponentActivity() {
                 operationMessage = outcome.fold(
                     onSuccess = {
                         remoteUrl = ""
-                        "订阅已信任并安装；以后每天首次启动时自动更新"
+                        "订阅已添加，之后每天自动更新"
                     },
-                    onFailure = { "安装订阅失败：${displayError(it)}" },
+                    onFailure = { "添加订阅失败：${displayError(it)}" },
                 )
             }
         }
@@ -993,14 +1024,14 @@ class MainActivity : ComponentActivity() {
                         }
                         catalog = repository.currentCatalog()
                         operationMessage = if (result.failedCount == 0) {
-                            "今日已自动更新 ${result.refreshedCount} 个订阅"
+                            "规则已更新"
                         } else {
-                            "今日已自动更新 ${result.refreshedCount} 个订阅；" +
-                                "${result.failedCount} 个失败，继续使用旧版本"
+                            "已更新 ${result.refreshedCount} 个订阅；" +
+                                "${result.failedCount} 个暂未更新成功，将继续使用旧版本"
                         }
                     },
                     onFailure = {
-                        operationMessage = "自动更新订阅失败，继续使用旧版本：${displayError(it)}"
+                        operationMessage = "规则更新失败，将继续使用旧版本：${displayError(it)}"
                     },
                 )
             }
@@ -1030,10 +1061,10 @@ class MainActivity : ComponentActivity() {
                         when (pending) {
                             is PendingRuleRemoval.Local -> "已删除本地规则：${pending.ruleNames}"
                             is PendingRuleRemoval.Remote ->
-                                "已取消 ${displayHost(pending.url)} 的规则订阅并删除本地文件"
+                                "已取消订阅 ${displayHost(pending.url)}"
                         }
                     },
-                    onFailure = { "移除规则失败：${displayError(it)}" },
+                    onFailure = { "删除失败：${displayError(it)}" },
                 )
             }
         }
@@ -1161,8 +1192,8 @@ class MainActivity : ComponentActivity() {
             operationMessage = if (result.isComplete) {
                 "已清除 ${formatCacheSize(result.freedBytes)} 缓存"
             } else {
-                "已清除 ${formatCacheSize(result.freedBytes)}，仍有 " +
-                    "${formatCacheSize(result.after.sizeBytes)} 正在被使用"
+                "已清除 ${formatCacheSize(result.freedBytes)}，另有 " +
+                    "${formatCacheSize(result.after.sizeBytes)} 正在使用中"
             }
         }
     }
@@ -1187,7 +1218,7 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             pendingInstallUpdate = null
             updateStatus = AppUpdateStatus.Ready(update)
-            operationMessage = "无法打开安装未知应用授权页面，请在系统设置中手动允许"
+            operationMessage = "无法打开授权页面，请在系统设置中允许本应用安装应用"
         }
     }
 
@@ -1195,10 +1226,10 @@ class MainActivity : ComponentActivity() {
         runCatching {
             AppUpdateInstaller.install(this, update.file)
         }.onSuccess {
-            operationMessage = "已提交系统安装会话，请确认安装更新"
+            operationMessage = "请在系统弹窗中确认安装"
         }.onFailure { error ->
             updateStatus = AppUpdateStatus.Ready(update)
-            operationMessage = "无法提交系统安装：${displayError(error)}"
+            operationMessage = "无法开始安装：${displayError(error)}"
         }
     }
 
@@ -1206,7 +1237,7 @@ class MainActivity : ComponentActivity() {
         error.message?.take(180)?.replace(Regex("""https?://\S+"""), "[URL]") ?: "未知错误"
 
     private fun displayHost(url: String): String =
-        runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "该域名" }
+        runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "该网站" }
 
     companion object {
         internal fun createQrImagePickerIntent(context: Context): Intent {
@@ -1244,11 +1275,11 @@ class MainActivity : ComponentActivity() {
 
 private enum class MainSection(
     val label: String,
-    val symbol: String,
+    @param:DrawableRes val icon: Int,
 ) {
-    HOME("首页", "⌂"),
-    RULES("规则", "≡"),
-    SETTINGS("设置", "⚙"),
+    HOME("首页", R.drawable.ic_home),
+    RULES("规则", R.drawable.ic_rules),
+    SETTINGS("设置", R.drawable.ic_settings),
 }
 
 @androidx.compose.runtime.Composable
@@ -1262,7 +1293,10 @@ private fun MainBottomBar(
                 selected = selectedSection == section,
                 onClick = { onSectionSelected(section) },
                 icon = {
-                    Text(section.symbol, style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        painter = painterResource(section.icon),
+                        contentDescription = null,
+                    )
                 },
                 label = { Text(section.label) },
                 alwaysShowLabel = true,
@@ -1288,9 +1322,17 @@ private fun MainPage(
 
 @androidx.compose.runtime.Composable
 private fun OperationMessage(message: String?) {
-    message?.let {
-        Text(it, color = MaterialTheme.colorScheme.primary)
-    }
+    message?.let { MessageBanner(it) }
+}
+
+@androidx.compose.runtime.Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+    )
 }
 
 private data class PendingLinkInput(
@@ -1311,52 +1353,6 @@ private sealed interface PendingRuleRemoval {
 }
 
 @androidx.compose.runtime.Composable
-private fun ClipboardEntryCard(
-    enabled: Boolean,
-    onReadClipboard: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("处理剪贴板链接", style = MaterialTheme.typography.titleMedium)
-            Text("无需开启无障碍服务；也可以从系统分享菜单将文本发送到本应用。")
-            Button(
-                onClick = onReadClipboard,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("读取并净化剪贴板链接")
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun QrImageEntryCard(
-    enabled: Boolean,
-    onPickImage: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("净化二维码图片", style = MaterialTheme.typography.titleMedium)
-            Text("选择 PNG 或 JPEG 图片，离线识别二维码并在原位置替换为净化后的链接。原图不会被覆盖。")
-            Button(
-                onClick = onPickImage,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("选择二维码图片")
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
 private fun RuleChoiceDialog(
     pending: PendingLinkInput,
     onDismiss: () -> Unit,
@@ -1364,10 +1360,11 @@ private fun RuleChoiceDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择净化规则") },
+        icon = { Icon(painterResource(R.drawable.ic_rules), contentDescription = null) },
+        title = { Text("选择一条规则") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("多条规则支持这个链接，请明确选择本次使用的规则。")
+                Text("有多条规则可以处理这个链接，请选择本次使用哪一条。")
                 pending.candidates.forEach { candidate ->
                     OutlinedButton(
                         onClick = { onSelect(candidate) },
@@ -1380,7 +1377,7 @@ private fun RuleChoiceDialog(
         },
         confirmButton = {},
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }
@@ -1393,13 +1390,14 @@ private fun UnsupportedLinkDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("没有匹配的净化规则") },
-        text = { Text("没有支持 $host 的规则。原链接不会被修改，你可以明确选择交给其他应用打开。") },
+        icon = { Icon(painterResource(R.drawable.ic_info), contentDescription = null) },
+        title = { Text("暂不支持这个网站") },
+        text = { Text("还没有适用于 $host 的规则，链接会保持原样。你可以直接用其他应用打开它。") },
         confirmButton = {
-            Button(onClick = onOpenOriginal) { Text("打开原链接") }
+            Button(onClick = onOpenOriginal) { Text("用其他应用打开") }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }
@@ -1407,27 +1405,111 @@ private fun UnsupportedLinkDialog(
 @androidx.compose.runtime.Composable
 private fun AccessibilityServiceCard(
     enabled: Boolean,
+    connected: Boolean,
     status: String,
     onOpenSettings: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val ready = enabled && connected
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                ready -> MaterialTheme.colorScheme.primaryContainer
+                enabled -> MaterialTheme.colorScheme.tertiaryContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+    ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(
-                if (enabled) "无障碍服务：已授权" else "无障碍服务：未授权",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(status)
-            Text("开启后，可在支持的应用中自动识别分享操作并净化链接。")
-            Button(
-                onClick = onOpenSettings,
-                modifier = Modifier.fillMaxWidth(),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text(if (enabled) "管理无障碍服务" else "前往开启无障碍服务")
+                IconBadge(
+                    icon = when {
+                        ready -> R.drawable.ic_check_circle
+                        enabled -> R.drawable.ic_warning
+                        else -> R.drawable.ic_accessibility
+                    },
+                    tint = when {
+                        ready -> MaterialTheme.colorScheme.primary
+                        enabled -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                    size = 48,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        when {
+                            ready -> "自动净化已开启"
+                            enabled -> "自动净化暂未运行"
+                            else -> "开启自动净化"
+                        },
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (!enabled) HowItWorksStrip()
+            if (ready) {
+                TextButton(onClick = onOpenSettings) { Text("管理无障碍服务") }
+            } else {
+                Button(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (enabled) "打开无障碍设置" else "去开启")
+                }
             }
         }
+    }
+}
+
+/** Three-step picture of what automatic cleaning does. */
+@androidx.compose.runtime.Composable
+private fun HowItWorksStrip() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        HowItWorksStep(R.drawable.ic_share, "点分享")
+        Icon(
+            painterResource(R.drawable.ic_arrow_forward),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        HowItWorksStep(R.drawable.ic_brand_mark, "自动净化")
+        Icon(
+            painterResource(R.drawable.ic_arrow_forward),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        HowItWorksStep(R.drawable.ic_chat, "干净转发")
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun HowItWorksStep(@DrawableRes icon: Int, label: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        IconBadge(icon = icon, size = 44)
+        Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -1444,109 +1526,121 @@ private fun FirstRunGuideDialog(
 ) {
     AlertDialog(
         onDismissRequest = onComplete,
-        title = { Text("首次使用引导") },
+        icon = {
+            Image(
+                painter = painterResource(R.drawable.ic_brand_badge),
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+            )
+        },
+        title = { Text("欢迎使用") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("为了让自动净链更顺畅，建议先完成以下设置；这些设置都可以稍后在“设置”中处理。")
+                Text("完成下面几步，分享时就能自动得到干净的链接。")
 
-                Text("1. 开启无障碍模式", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "开启后，应用可以在支持的来源 App 里辅助点击“复制链接”，自动完成链接转换，" +
-                        "无需你手动跳转到本应用。",
-                )
-                Text(
-                    if (accessibilityEnabled) "当前状态：已开启"
-                    else "当前状态：未开启",
-                    color = if (accessibilityEnabled) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                )
-                Button(
-                    onClick = onOpenAccessibilitySettings,
-                    modifier = Modifier.fillMaxWidth(),
+                GuideStep(
+                    icon = R.drawable.ic_accessibility,
+                    title = "开启自动净化",
+                    description = "在支持的应用中点分享时，帮你点一次“复制链接”并去掉追踪参数。",
+                    done = accessibilityEnabled,
+                    doneLabel = "已开启",
+                    pendingLabel = "未开启",
                 ) {
-                    Text(if (accessibilityEnabled) "管理无障碍服务" else "前往开启无障碍服务")
+                    Button(
+                        onClick = onOpenAccessibilitySettings,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (accessibilityEnabled) "管理无障碍服务" else "去开启")
+                    }
                 }
 
-                Text("2. 允许后台运行", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "建议关闭 Android 电池优化，并在 ${guide.displayName} 的设置中允许自启动和后台运行，" +
-                        "减少应用被系统清理，避免无障碍服务失效。",
-                )
-                Text(
-                    if (batteryOptimizationDisabled) "Android 电池优化：已豁免"
-                    else "Android 电池优化：尚未豁免",
-                    color = if (batteryOptimizationDisabled) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                )
-                Button(
-                    onClick = onOpenManufacturerSettings,
-                    modifier = Modifier.fillMaxWidth(),
+                GuideStep(
+                    icon = R.drawable.ic_battery,
+                    title = "允许后台运行",
+                    description = "避免系统清理本应用，导致自动净化失效。",
+                    done = batteryOptimizationDisabled,
+                    doneLabel = "电池优化已关闭",
+                    pendingLabel = "电池优化未关闭",
                 ) {
-                    Text(guide.settingsButtonLabel)
-                }
-                OutlinedButton(
-                    onClick = onOpenBatteryOptimization,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("打开 Android 电池优化列表")
+                    Button(
+                        onClick = onOpenManufacturerSettings,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(guide.settingsButtonLabel)
+                    }
+                    TextButton(onClick = onOpenBatteryOptimization) {
+                        Text("电池优化设置")
+                    }
                 }
 
-                Text("3. 了解公开规则", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "本应用使用公开的规则 JSON 来识别不同 App 的分享链接。建议查看规则说明和公开规则链接，" +
-                        "了解规则来源、更新方式及支持范围。",
-                )
-                OutlinedButton(
-                    onClick = onOpenRules,
-                    modifier = Modifier.fillMaxWidth(),
+                GuideStep(
+                    icon = R.drawable.ic_rules,
+                    title = "了解规则",
+                    description = "每个应用的链接如何处理都写在公开规则里，随时可以查看。",
                 ) {
-                    Text("查看 https://stoptracking.me/rules")
+                    OutlinedButton(
+                        onClick = onOpenRules,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("查看公开规则")
+                    }
                 }
 
-                Text(
-                    "以上均为推荐设置，不会上传链接或无障碍界面内容；你可以随时在系统设置中调整。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                HintText("以上均为推荐设置，可稍后在「设置」中完成。本应用不会上传你的链接或屏幕内容。")
             }
         },
         confirmButton = {
             Button(onClick = onComplete) { Text("开始使用") }
         },
         dismissButton = {
-            OutlinedButton(onClick = onComplete) { Text("稍后设置") }
+            TextButton(onClick = onComplete) { Text("稍后设置") }
         },
     )
+}
+
+@androidx.compose.runtime.Composable
+private fun GuideStep(
+    @DrawableRes icon: Int,
+    title: String,
+    description: String,
+    done: Boolean? = null,
+    doneLabel: String = "",
+    pendingLabel: String = "",
+    actions: @androidx.compose.runtime.Composable ColumnScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            IconBadge(icon = icon, size = 36)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            done?.let { StatusChip(if (it) doneLabel else pendingLabel, positive = it) }
+        }
+        Text(description, style = MaterialTheme.typography.bodyMedium)
+        actions()
+    }
 }
 
 @androidx.compose.runtime.Composable
 private fun FirstRunGuideSettingsCard(
     onOpenGuide: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("首次使用引导", style = MaterialTheme.typography.titleMedium)
-            Text("重新查看无障碍服务、后台运行和公开规则的推荐说明。")
-            OutlinedButton(
-                onClick = onOpenGuide,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("重新查看首次使用引导")
-            }
-        }
-    }
+    SectionCard(
+        icon = R.drawable.ic_help,
+        title = "使用引导",
+        subtitle = "重新查看开启自动净化的推荐设置",
+        trailing = {
+            TextButton(onClick = onOpenGuide) { Text("查看") }
+        },
+    )
 }
 
 @androidx.compose.runtime.Composable
@@ -1557,60 +1651,54 @@ private fun BackgroundRunSettingsCard(
     onOpenAppDetails: () -> Unit,
     onOpenBatteryOptimization: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+    SectionCard(
+        icon = R.drawable.ic_battery,
+        title = "后台运行",
+        subtitle = if (batteryOptimizationDisabled) {
+            "电池优化已关闭。建议再确认一下自启动权限。"
+        } else {
+            "建议允许后台运行，否则锁屏或重启后自动净化可能失效。"
+        },
+        tint = if (batteryOptimizationDisabled) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+    ) {
+        Button(
+            onClick = onOpenManufacturerSettings,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(
-                if (batteryOptimizationDisabled) "后台运行设置" else "建议完善后台运行设置",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (batteryOptimizationDisabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
-            )
-            Text("已识别系统：${guide.displayName}")
-            Text(
-                if (batteryOptimizationDisabled) {
-                    "Android 电池优化：当前已豁免。厂商自启动和后台活动开关仍需手动确认。"
-                } else {
-                    "Android 电池优化：当前未豁免，锁屏后系统可能限制后台运行或无障碍服务。"
-                },
-            )
-            Text("重启后自动恢复：首次开启无障碍后，由系统保存授权并重新连接；首次解锁后恢复分享监听，无需手动打开本应用。")
-            Text("若厂商清理后台或关闭授权，应用无法自行重新授权。请允许自启动、取消电池限制；仍未连接时再关闭并重新开启无障碍。")
-            Text("请按以下步骤允许本应用在后台运行：")
-            guide.manualSteps.forEachIndexed { index, step ->
-                Text("${index + 1}. $step")
-            }
-            Button(
-                onClick = onOpenManufacturerSettings,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(guide.settingsButtonLabel)
-            }
+            Text(guide.settingsButtonLabel)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             if (guide.hasDedicatedSettingsTargets) {
                 OutlinedButton(
                     onClick = onOpenAppDetails,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Text("打开本应用详情（电池/后台）")
+                    Text("应用详情")
                 }
             }
             OutlinedButton(
                 onClick = onOpenBatteryOptimization,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
             ) {
-                Text("打开 Android 电池优化列表")
+                Text("电池优化")
             }
-            Text(
-                "不同系统版本的菜单可能不同；本应用只能打开相关页面，不能替你修改或读取多数厂商开关。" +
-                    "允许后台运行可能增加少量耗电，可随时在系统设置中关闭。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+        ExpandableDetails("查看${guide.displayName}的设置步骤") {
+            guide.manualSteps.forEachIndexed { index, step ->
+                StepRow(index + 1, step)
+            }
+            HintText(
+                "手机重启后，解锁即可自动恢复，无需手动打开本应用。如果仍然失效，" +
+                    "请在系统无障碍设置中关闭后重新开启。",
             )
+            HintText("不同系统的菜单名称可能略有不同。允许后台运行可能会稍微增加耗电，可随时关闭。")
         }
     }
 }
@@ -1623,48 +1711,32 @@ private fun CacheManagementCard(
     onRefresh: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("缓存管理", style = MaterialTheme.typography.titleMedium)
-            Text(
-                when {
-                    clearing -> "正在清理缓存…"
-                    snapshot == null -> "正在统计缓存大小…"
-                    else -> "当前缓存：${formatCacheSize(snapshot.sizeBytes)}" +
-                        "（${snapshot.fileCount} 个文件）"
-                },
-            )
-            Text(
-                "这里统计应用缓存目录，包括二维码临时图片、更新包、分享封面和 SDK 缓存。" +
-                    "已保存到相册的图片和已安装规则不会被清除。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(
+    SectionCard(
+        icon = R.drawable.ic_delete,
+        title = "缓存",
+        subtitle = when {
+            clearing -> "正在清理…"
+            snapshot == null -> "正在计算…"
+            else -> "已占用 ${formatCacheSize(snapshot.sizeBytes)}"
+        },
+        trailing = {
+            IconButton(
                 onClick = onRefresh,
                 enabled = enabled && !clearing,
-                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("重新统计")
+                Icon(painterResource(R.drawable.ic_refresh), contentDescription = "重新计算")
             }
-            Button(
-                onClick = onClear,
-                enabled = enabled && !clearing && (snapshot?.fileCount ?: 0) > 0,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("清除缓存")
-            }
-            if (!enabled) {
-                Text(
-                    "更新下载完成后才能清除缓存。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        },
+    ) {
+        HintText("包括二维码临时图片、更新安装包和分享封面等。已保存到相册的图片和已添加的规则不受影响。")
+        FilledTonalButton(
+            onClick = onClear,
+            enabled = enabled && !clearing && (snapshot?.fileCount ?: 0) > 0,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("清除缓存")
         }
+        if (!enabled) HintText("更新下载完成后才能清除缓存。")
     }
 }
 
@@ -1673,22 +1745,14 @@ private fun DefaultBrowserCard(
     enabled: Boolean,
     onRequestBrowserRole: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("网页链接打开方式", style = MaterialTheme.typography.titleMedium)
-            Text("将本应用设为默认网页处理应用后，可以直接净化从其他应用打开的链接。")
-            OutlinedButton(
-                onClick = onRequestBrowserRole,
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("设为默认网页处理应用")
-            }
-        }
-    }
+    SectionCard(
+        icon = R.drawable.ic_globe,
+        title = "用本应用打开链接",
+        subtitle = "设为默认打开方式后，点开的网页链接会先经过净化",
+        trailing = {
+            TextButton(onClick = onRequestBrowserRole, enabled = enabled) { Text("设置") }
+        },
+    )
 }
 
 @androidx.compose.runtime.Composable
@@ -1696,73 +1760,129 @@ private fun ResultPresentationCard(
     resultPresentationMode: ResultPresentationMode,
     onResultPresentationModeChange: (ResultPresentationMode) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("自动化结果显示", style = MaterialTheme.typography.titleSmall)
-            PresentationModeChoice(
+    SectionCard(
+        icon = R.drawable.ic_overlay,
+        title = "净化完成后",
+        subtitle = "自动净化完成时，在哪里显示结果",
+    ) {
+        ChoiceGroup {
+            ChoicePill(
+                icon = R.drawable.ic_open_in_new,
+                label = "打开结果页",
                 selected = resultPresentationMode == ResultPresentationMode.APP_PAGE,
-                label = "打开完整结果页（默认）",
                 onClick = { onResultPresentationModeChange(ResultPresentationMode.APP_PAGE) },
+                modifier = Modifier.weight(1f),
             )
-            PresentationModeChoice(
+            ChoicePill(
+                icon = R.drawable.ic_overlay,
+                label = "只显示悬浮窗",
                 selected = resultPresentationMode == ResultPresentationMode.ACCESSIBILITY_OVERLAY,
-                label = "仅显示悬浮窗（不自动跳转结果页）",
                 onClick = {
                     onResultPresentationModeChange(ResultPresentationMode.ACCESSIBILITY_OVERLAY)
                 },
-            )
-            Text(
-                "悬浮窗仅在无障碍自动化中使用，不需要额外的系统悬浮窗权限。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
         }
+        HintText("悬浮窗可以直接复制或转发，不用离开当前应用，也不需要额外权限。")
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun UsageReportingPrivacyCard(
-    consent: UsageReportingConsent,
-    onOpenPolicy: () -> Unit,
-    onGrant: () -> Unit,
-    onDeny: () -> Unit,
+private fun PrivacyCard(
+    usageReportingConsent: UsageReportingConsent,
+    qqSdkConsentGranted: Boolean,
+    weChatSdkConsentGranted: Boolean,
+    onOpenUsagePolicy: () -> Unit,
+    onGrantUsage: () -> Unit,
+    onDenyUsage: () -> Unit,
+    onOpenQQPolicy: () -> Unit,
+    onRevokeQQ: () -> Unit,
+    onOpenWeChatPolicy: () -> Unit,
+    onRevokeWeChat: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+    SectionCard(
+        icon = R.drawable.ic_shield,
+        title = "隐私",
+        subtitle = "链接在本机净化，不会上传到我们的服务器",
+    ) {
+        PrivacyRow(
+            title = "匿名使用统计",
+            granted = usageReportingConsent == UsageReportingConsent.GRANTED,
+            grantedLabel = "已开启",
+            deniedLabel = "已关闭",
+            description = when (usageReportingConsent) {
+                UsageReportingConsent.GRANTED -> "只统计分享次数，不包含链接或分享内容。"
+                else -> "已关闭，所有功能照常使用。"
+            },
         ) {
-            Text("隐私保护的使用统计", style = MaterialTheme.typography.titleMedium)
-            Text(
-                when (consent) {
-                    UsageReportingConsent.UNSET -> "尚未选择是否允许使用统计。"
-                    UsageReportingConsent.GRANTED ->
-                        "已允许：仅汇报通过本应用发起分享操作的次数，不汇报链接或分享内容。"
-                    UsageReportingConsent.DENIED ->
-                        "已关闭：不会新增或汇报使用统计；若此前启用，仅会重试删除旧统计记录。所有功能仍可使用。"
-                },
-            )
-            Text(
-                "启用时会生成与设备、账号无关的随机安装实例码；后端不保存原始码，仅以其不可逆 HMAC 作为统计键。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(onClick = onOpenPolicy) {
-                Text("查看完整隐私政策")
-            }
-            if (consent == UsageReportingConsent.GRANTED) {
-                OutlinedButton(onClick = onDeny) {
-                    Text("停止并删除使用统计记录")
-                }
-            } else if (consent == UsageReportingConsent.DENIED) {
-                Button(onClick = onGrant) {
-                    Text("允许使用统计")
-                }
+            TextButton(onClick = onOpenUsagePolicy) { Text("隐私政策") }
+            when (usageReportingConsent) {
+                UsageReportingConsent.GRANTED ->
+                    TextButton(onClick = onDenyUsage) { Text("关闭并删除记录") }
+                UsageReportingConsent.DENIED ->
+                    TextButton(onClick = onGrantUsage) { Text("开启") }
+                UsageReportingConsent.UNSET -> Unit
             }
         }
+        HorizontalDivider()
+        ShareSdkPrivacyRow(
+            name = "微信分享",
+            granted = weChatSdkConsentGranted,
+            onOpenPolicy = onOpenWeChatPolicy,
+            onRevoke = onRevokeWeChat,
+        )
+        HorizontalDivider()
+        ShareSdkPrivacyRow(
+            name = "QQ 分享",
+            granted = qqSdkConsentGranted,
+            onOpenPolicy = onOpenQQPolicy,
+            onRevoke = onRevokeQQ,
+        )
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ShareSdkPrivacyRow(
+    name: String,
+    granted: Boolean,
+    onOpenPolicy: () -> Unit,
+    onRevoke: () -> Unit,
+) {
+    PrivacyRow(
+        title = name,
+        granted = granted,
+        grantedLabel = "已授权",
+        deniedLabel = "未授权",
+        description = if (granted) {
+            "仅在你选择${name}时使用腾讯提供的分享组件。"
+        } else {
+            "首次使用${name}时会先征得你的同意。"
+        },
+    ) {
+        TextButton(onClick = onOpenPolicy) { Text("隐私说明") }
+        if (granted) TextButton(onClick = onRevoke) { Text("撤回授权") }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun PrivacyRow(
+    title: String,
+    granted: Boolean,
+    grantedLabel: String,
+    deniedLabel: String,
+    description: String,
+    actions: @androidx.compose.runtime.Composable RowScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            StatusChip(if (granted) grantedLabel else deniedLabel, positive = granted)
+        }
+        HintText(description)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), content = actions)
     }
 }
 
@@ -1774,77 +1894,47 @@ private fun UsageReportingConsentDialog(
 ) {
     AlertDialog(
         onDismissRequest = {},
-        title = { Text("是否允许隐私保护的使用统计？") },
+        icon = { Icon(painterResource(R.drawable.ic_shield), contentDescription = null) },
+        title = { Text("允许匿名统计分享次数？") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("同意后，应用仅汇报你通过本应用发起分享操作的次数。")
-                Text(
-                    "应用会生成与设备、账号无关的随机安装实例码；服务器不保存原始码，只以其不可逆 HMAC 作为统计键。",
-                )
-                Text("后端保存累计分享次数和必要时间；网络重试去重收据保留约 90 天并每日清理。")
-                Text("不会上传链接、标题、剪贴板内容、来源或目标应用、联系人、截图或无障碍界面数据。")
-                Text("拒绝不会影响链接净化、复制、打开或分享等任何功能，也可稍后在设置中更改选择。")
-                OutlinedButton(onClick = onOpenPolicy) {
+                Text("这能帮助我们了解应用是否有用。开启后，只会统计你通过本应用分享的次数。")
+                ConsentPoint("不会上传链接、标题、剪贴板、联系人或屏幕内容")
+                ConsentPoint("拒绝不影响任何功能，可随时在设置中更改")
+                ExpandableDetails("统计如何保护隐私") {
+                    HintText("应用会生成一个与设备、账号无关的随机编号；服务器只保存它的不可逆摘要，无法反推出编号本身。")
+                    HintText("服务器只保存累计次数和必要的时间；用于防止重复计数的记录约 90 天后自动清理。")
+                }
+                TextButton(onClick = onOpenPolicy) {
                     Text("查看完整隐私政策")
                 }
             }
         },
         confirmButton = {
-            Button(onClick = onGrant) { Text("同意") }
+            Button(onClick = onGrant) { Text("允许") }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDeny) { Text("拒绝") }
+            TextButton(onClick = onDeny) { Text("不允许") }
         },
     )
 }
 
 @androidx.compose.runtime.Composable
-private fun ShareSdkPrivacyCard(
-    sdkName: String,
-    consentGranted: Boolean,
-    onOpenPolicy: () -> Unit,
-    onRevoke: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("$sdkName 分享隐私", style = MaterialTheme.typography.titleMedium)
-            Text(
-                if (consentGranted) {
-                    "$sdkName 已获授权，仅在你主动选择对应分享功能时使用。"
-                } else {
-                    "$sdkName 尚未启用；首次使用对应分享功能时会先说明并征求同意。"
-                },
-            )
-            OutlinedButton(onClick = onOpenPolicy) {
-                Text("查看 $sdkName 隐私说明")
-            }
-            if (consentGranted) {
-                OutlinedButton(onClick = onRevoke) {
-                    Text("撤回 $sdkName 授权")
-                }
-            }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun PresentationModeChoice(
-    selected: Boolean,
-    label: String,
-    onClick: () -> Unit,
-) {
+private fun ConsentPoint(text: String) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Text(label)
+        Icon(
+            painterResource(R.drawable.ic_check_circle),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(text, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -1856,53 +1946,78 @@ private fun RuleCatalogSection(
     copyTriggerMode: (InstalledRule) -> CopyTriggerMode,
     onSelectRule: (String, String) -> Unit,
     onCopyTriggerModeChange: (InstalledRule, CopyTriggerMode) -> Unit,
+    onOpenPublicRules: () -> Unit,
 ) {
-    Text("支持的规则", style = MaterialTheme.typography.titleLarge)
     if (catalog.installedRules.isEmpty()) {
-        Text("没有可用规则，自动化不会运行。")
+        SectionCard(
+            icon = R.drawable.ic_rules,
+            title = "还没有规则",
+            subtitle = "添加规则后，自动净化才能在对应应用中工作。",
+        ) {
+            OutlinedButton(
+                onClick = onOpenPublicRules,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("查看公开规则")
+            }
+        }
         return
     }
+    SectionLabel("支持的应用")
     catalog.installedRules.groupBy { it.rule.target.packageName }.forEach { (packageName, rules) ->
         val compatible = compatibleRules(packageName)
         val activeResolution = resolution(packageName)
         val paused = activeResolution is ActiveRuleResolution.Conflict ||
             activeResolution is ActiveRuleResolution.InvalidSelection
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(packageName, style = MaterialTheme.typography.titleMedium)
-                if (paused) {
-                    Text(
-                        if (activeResolution is ActiveRuleResolution.InvalidSelection) {
-                            "此前选择的规则已失效；重新选择前自动化保持暂停。"
-                        } else {
-                            "存在 ${compatible.size} 条兼容规则；选择前自动化保持暂停。"
-                        },
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                } else if (compatible.isEmpty()) {
-                    Text(
-                        "没有兼容当前应用版本的规则，自动化保持暂停。",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                rules.forEach { installed ->
-                    val isCompatible = installed in compatible
-                    RuleChoice(
-                        installed = installed,
-                        showChoice = isCompatible && (compatible.size > 1 || paused),
-                        selected = activeResolution is ActiveRuleResolution.Active &&
-                            activeResolution.installed.key == installed.key,
-                        compatible = isCompatible,
-                        copyTriggerMode = copyTriggerMode(installed),
-                        onClick = { onSelectRule(packageName, installed.key) },
-                        onCopyTriggerModeChange = { mode ->
-                            onCopyTriggerModeChange(installed, mode)
-                        },
-                    )
-                }
+        val appName = rules.map { it.rule.displayName }.distinct().joinToString(" / ")
+        SectionCard(
+            icon = R.drawable.ic_apps,
+            title = appName,
+            tint = if (paused || compatible.isEmpty()) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            trailing = {
+                StatusChip(
+                    when {
+                        paused -> "需要选择"
+                        compatible.isEmpty() -> "不兼容"
+                        else -> "已启用"
+                    },
+                    positive = !paused && compatible.isNotEmpty(),
+                )
+            },
+        ) {
+            if (paused) {
+                MessageBanner(
+                    if (activeResolution is ActiveRuleResolution.InvalidSelection) {
+                        "之前选择的规则已不可用，请重新选择一条。选择前不会自动净化。"
+                    } else {
+                        "有 ${compatible.size} 条规则都适用于这个应用，请选择一条。选择前不会自动净化。"
+                    },
+                    BannerTone.WARNING,
+                )
+            } else if (compatible.isEmpty()) {
+                MessageBanner(
+                    "现有规则不适用于你安装的应用版本，暂时不会自动净化。",
+                    BannerTone.WARNING,
+                )
+            }
+            rules.forEach { installed ->
+                val isCompatible = installed in compatible
+                RuleChoice(
+                    installed = installed,
+                    showChoice = isCompatible && (compatible.size > 1 || paused),
+                    selected = activeResolution is ActiveRuleResolution.Active &&
+                        activeResolution.installed.key == installed.key,
+                    compatible = isCompatible,
+                    copyTriggerMode = copyTriggerMode(installed),
+                    onClick = { onSelectRule(packageName, installed.key) },
+                    onCopyTriggerModeChange = { mode ->
+                        onCopyTriggerModeChange(installed, mode)
+                    },
+                )
             }
         }
     }
@@ -1918,110 +2033,138 @@ private fun RuleChoice(
     onClick: () -> Unit,
     onCopyTriggerModeChange: (CopyTriggerMode) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (showChoice) RadioButton(selected = selected, onClick = onClick, enabled = compatible)
-        Column(modifier = Modifier.weight(1f)) {
-            Text("${installed.rule.displayName} · v${installed.rule.version}")
-            Text(
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showChoice) {
+                RadioButton(selected = selected, onClick = onClick, enabled = compatible)
+            }
+            HintText(
                 buildString {
+                    if (showChoice) append(installed.rule.displayName).append(" · ")
+                    append("版本 ").append(installed.rule.version).append(" · ")
                     append(
                         when (installed.rule.source.kind) {
-                            RuleSourceKind.BUILTIN -> "旧格式来源"
+                            RuleSourceKind.BUILTIN -> "旧版规则"
                             RuleSourceKind.LOCAL -> "本地导入"
-                            RuleSourceKind.REMOTE -> "远程订阅"
+                            RuleSourceKind.REMOTE -> "订阅"
                         },
                     )
-                    if (!compatible) append(" · 与当前版本不兼容")
+                    if (!compatible) append(" · 不适用于当前应用版本")
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(
-                "悬浮窗复制方式",
-                modifier = Modifier.padding(top = 6.dp),
-                style = MaterialTheme.typography.labelMedium,
-            )
-            CopyTriggerChoice(
+        }
+        Text(
+            "悬浮窗中如何复制链接",
+            style = MaterialTheme.typography.labelLarge,
+        )
+        ChoiceGroup {
+            ChoicePill(
+                icon = R.drawable.ic_bolt,
+                label = "自动复制",
                 selected = copyTriggerMode == CopyTriggerMode.AUTOMATIC,
-                label = "自动复制并净化",
                 enabled = compatible,
                 onClick = { onCopyTriggerModeChange(CopyTriggerMode.AUTOMATIC) },
+                modifier = Modifier.weight(1f),
             )
-            CopyTriggerChoice(
+            ChoicePill(
+                icon = R.drawable.ic_touch,
+                label = "点按后复制",
                 selected = copyTriggerMode == CopyTriggerMode.USER_CONFIRMATION,
-                label = "点击悬浮按钮后复制",
                 enabled = compatible,
                 onClick = { onCopyTriggerModeChange(CopyTriggerMode.USER_CONFIRMATION) },
+                modifier = Modifier.weight(1f),
             )
         }
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun CopyTriggerChoice(
-    selected: Boolean,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
+private fun AddRuleCard(
+    remoteUrl: String,
+    busy: Boolean,
+    onRemoteUrlChange: (String) -> Unit,
+    onImportLocal: () -> Unit,
+    onPreviewSubscription: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    SectionCard(
+        icon = R.drawable.ic_download,
+        title = "添加规则",
+        subtitle = "导入规则文件，或订阅规则地址（每天自动更新）",
     ) {
-        RadioButton(selected = selected, onClick = onClick, enabled = enabled)
-        Text(
-            label,
-            color = if (enabled) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+        OutlinedButton(
+            onClick = onImportLocal,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_upload),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("导入规则文件")
+        }
+        OutlinedTextField(
+            value = remoteUrl,
+            onValueChange = onRemoteUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("订阅地址（https://…）") },
+            leadingIcon = {
+                Icon(painterResource(R.drawable.ic_link), contentDescription = null)
             },
+            singleLine = true,
         )
+        Button(
+            onClick = onPreviewSubscription,
+            enabled = !busy && remoteUrl.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Text("预览并订阅")
+            }
+        }
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun LocalRuleRow(
-    ruleNames: String,
+private fun RuleSourceRow(
+    @DrawableRes icon: Int,
+    title: String,
+    subtitle: String,
     enabled: Boolean,
+    removeLabel: String,
     onRemove: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
         Row(
-            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+            modifier = Modifier
+                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(ruleNames, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = onRemove, enabled = enabled) { Text("删除") }
-        }
-    }
-}
-
-@androidx.compose.runtime.Composable
-private fun SubscriptionRow(
-    url: String,
-    enabled: Boolean,
-    onRemove: () -> Unit,
-) {
-    val host = runCatching { URI(url).host }.getOrNull().orEmpty().ifBlank { "未知域名" }
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(14.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(host, modifier = Modifier.weight(1f))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    "每天首次启动时自动更新",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            IconBadge(icon = icon, size = 36)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                HintText(subtitle)
+            }
+            IconButton(onClick = onRemove, enabled = enabled) {
+                Icon(
+                    painterResource(R.drawable.ic_delete),
+                    contentDescription = removeLabel,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = onRemove, enabled = enabled) { Text("取消订阅") }
             }
         }
     }
@@ -2036,17 +2179,18 @@ private fun RuleRemovalDialog(
     val isLocal = pending is PendingRuleRemoval.Local
     val description = when (pending) {
         is PendingRuleRemoval.Local ->
-            "将删除本地规则“${pending.ruleNames}”及对应文件。需要时可以重新导入。"
+            "将删除本地规则“${pending.ruleNames}”。需要时可以重新导入。"
         is PendingRuleRemoval.Remote -> {
             val host = runCatching { URI(pending.url).host }.getOrNull()
                 .orEmpty()
-                .ifBlank { "该域名" }
-            "将取消 $host 的规则订阅并删除本地规则文件。需要时可以重新订阅。"
+                .ifBlank { "该网站" }
+            "将取消来自 $host 的订阅，并删除已下载的规则。需要时可以重新订阅。"
         }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isLocal) "删除本地规则？" else "取消规则订阅？") },
+        icon = { Icon(painterResource(R.drawable.ic_delete), contentDescription = null) },
+        title = { Text(if (isLocal) "删除本地规则？" else "取消订阅？") },
         text = { Text(description) },
         confirmButton = {
             Button(onClick = onConfirm) {
@@ -2054,7 +2198,7 @@ private fun RuleRemovalDialog(
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("保留") }
+            TextButton(onClick = onDismiss) { Text("保留") }
         },
     )
 }
@@ -2066,7 +2210,9 @@ private fun SubscriptionTrustDialog(
     onConfirm: () -> Unit,
 ) {
     val host = runCatching { URI(preview.url).host }.getOrNull().orEmpty()
-    val packages = preview.bundle.rules.joinToString("\n") { "• ${it.target.packageName}" }
+    val apps = preview.bundle.rules.joinToString("\n") {
+        "• ${it.displayName}（${it.target.packageName}）"
+    }
     val selectors = preview.bundle.rules.flatMap { rule ->
         rule.copyLinkSelectors.map { selector ->
             listOfNotNull(
@@ -2079,20 +2225,28 @@ private fun SubscriptionTrustDialog(
     }.joinToString("\n") { "• $it" }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("确认信任规则订阅") },
+        icon = { Icon(painterResource(R.drawable.ic_cloud), contentDescription = null) },
+        title = { Text("添加这个规则订阅？") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("域名：$host")
-                Text("目标包名：\n$packages")
-                Text("将被用于一次点击的复制选择器：\n$selectors")
-                Text("规则不能执行坐标、脚本、任意 Intent 或连续点击。")
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("来源：$host")
+                Text("适用于以下应用：\n$apps")
+                ConsentPoint("规则只能帮你点一次“复制链接”")
+                ConsentPoint("不能运行脚本、连续点击或打开其他应用")
+                ExpandableDetails("查看会被点击的按钮") {
+                    HintText(selectors)
+                }
+                HintText("请只添加你信任的来源。")
             }
         },
         confirmButton = {
-            Button(onClick = onConfirm) { Text("信任并安装") }
+            Button(onClick = onConfirm) { Text("信任并添加") }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         },
     )
 }

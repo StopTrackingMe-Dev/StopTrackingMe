@@ -1,24 +1,29 @@
 package app.stoptrackingme.overlay
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.text.TextUtils
 import android.util.TypedValue
+import androidx.annotation.DrawableRes
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
+import app.stoptrackingme.R
 import app.stoptrackingme.rules.CleanResult
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -61,7 +66,7 @@ class ShareOverlayController(
     fun showProgress(sessionId: String): Boolean {
         model = OverlayModel(
             sessionId = sessionId,
-            title = "正在净化分享链接",
+            title = "正在净化链接",
             status = "正在查找并复制链接…",
             result = null,
             previewReady = false,
@@ -77,8 +82,8 @@ class ShareOverlayController(
     fun showCopyConfirmation(sessionId: String, sourceName: String): Boolean {
         model = OverlayModel(
             sessionId = sessionId,
-            title = "$sourceName · 按需净化",
-            status = "点击悬浮按钮后才会复制并净化链接",
+            title = "$sourceName · 等待开始",
+            status = "点一下圆形按钮，开始复制并净化链接",
             result = null,
             previewReady = false,
             forceExpanded = false,
@@ -95,8 +100,8 @@ class ShareOverlayController(
             it.sessionId == sessionId && it.awaitingCopyConfirmation
         } ?: return false
         model = current.copy(
-            title = "正在净化分享链接",
-            status = "正在定位“复制链接”…",
+            title = "正在净化链接",
+            status = "正在查找“复制链接”…",
             forceExpanded = false,
             awaitingCopyConfirmation = false,
         )
@@ -118,7 +123,7 @@ class ShareOverlayController(
         }
         model = OverlayModel(
             sessionId = sessionId,
-            title = if (result.isSuccess) "$sourceName · 净化完成" else "$sourceName · 未能净化链接",
+            title = if (result.isSuccess) "$sourceName · 已净化" else "$sourceName · 未能净化",
             status = status,
             result = result,
             previewReady = previewReady,
@@ -246,124 +251,151 @@ class ShareOverlayController(
     }
 
     private fun createCard(current: OverlayModel): View {
-        val foreground = if (isDarkTheme()) Color.WHITE else Color.rgb(28, 28, 30)
-        val secondary = if (isDarkTheme()) Color.rgb(205, 205, 210) else Color.rgb(82, 82, 88)
-        val surface = if (isDarkTheme()) Color.rgb(42, 42, 46) else Color.WHITE
-        val border = if (isDarkTheme()) Color.rgb(95, 95, 102) else Color.rgb(215, 215, 220)
+        val palette = palette()
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
             minimumWidth = dp(MIN_CARD_WIDTH_DP)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(10), dp(8), dp(12))
             elevation = dp(8).toFloat()
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(18).toFloat()
-                setColor(surface)
-                setStroke(dp(1), border)
+                cornerRadius = dp(24).toFloat()
+                setColor(palette.surface)
+                setStroke(dp(1), palette.border)
             }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-            contentDescription = "净链分享悬浮窗"
+            contentDescription = "链接净化悬浮窗"
         }
 
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(textView("拖动  ${current.title}", 17f, foreground, bold = true).apply {
+        val dragHandle = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             tag = DRAG_HANDLE_TAG
             contentDescription = "拖动悬浮窗：${current.title}"
             isClickable = true
             isFocusable = true
-        }, weighted())
-        header.addView(smallButton("收起") {
+            addView(iconView(R.drawable.ic_brand_mark, palette.accent), LinearLayout.LayoutParams(dp(20), dp(20)))
+            addView(textView(current.title, 15f, palette.foreground, bold = true).apply {
+                setPadding(dp(8), 0, dp(4), 0)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }, weighted())
+        }
+        header.addView(dragHandle, weighted())
+        header.addView(iconButton(R.drawable.ic_expand_more, "收起", palette.secondary) {
             model = model?.copy(forceExpanded = false)
             userCollapsed = true
             render()
         })
+        if (current.result != null) {
+            header.addView(iconButton(R.drawable.ic_close, "关闭", palette.secondary) {
+                action(current.sessionId, ShareOverlayAction.CLOSE)
+            })
+        }
         card.addView(header, matchWrap())
 
-        card.addView(textView(current.status, 13f, secondary).apply {
-            setPadding(0, dp(4), 0, dp(4))
+        card.addView(textView(current.status, 13f, palette.secondary).apply {
+            setPadding(0, dp(2), dp(6), dp(6))
             maxLines = 3
             ellipsize = TextUtils.TruncateAt.END
         }, matchWrap())
 
         val result = current.result
         result?.cleanedUrl?.let { cleanedUrl ->
-            card.addView(textView(cleanedUrl, 12f, foreground).apply {
-                maxLines = 2
-                ellipsize = TextUtils.TruncateAt.MIDDLE
-                setTextIsSelectable(false)
-            }, matchWrap())
+            val urlRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(12).toFloat()
+                    setColor(palette.accentContainer)
+                }
+                addView(iconView(R.drawable.ic_link, palette.accent), LinearLayout.LayoutParams(dp(16), dp(16)))
+                addView(textView(cleanedUrl, 12f, palette.foreground).apply {
+                    setPadding(dp(8), 0, 0, 0)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.MIDDLE
+                    setTextIsSelectable(false)
+                }, weighted())
+            }
+            card.addView(urlRow, matchWrap().apply { marginEnd = dp(6) })
         }
 
         if (result?.isSuccess == true) {
-            card.addView(actionRow(
-                actionButton("微信好友", current.previewReady) {
+            card.addView(tileRow(
+                actionTile(R.drawable.ic_chat, "微信好友", WECHAT_GREEN, current.previewReady) {
                     action(current.sessionId, ShareOverlayAction.WECHAT_FRIEND)
                 },
-                actionButton("朋友圈", current.previewReady) {
+                actionTile(R.drawable.ic_moments, "朋友圈", WECHAT_GREEN, current.previewReady) {
                     action(current.sessionId, ShareOverlayAction.WECHAT_TIMELINE)
                 },
-            ), matchWrap(top = 6))
-            card.addView(actionRow(
-                actionButton("QQ 好友", current.previewReady) {
+                actionTile(R.drawable.ic_person, "QQ 好友", QQ_BLUE, current.previewReady) {
                     action(current.sessionId, ShareOverlayAction.QQ_FRIEND)
                 },
-                actionButton("QQ 空间", current.previewReady) {
+                actionTile(R.drawable.ic_star, "QQ 空间", QQ_BLUE, current.previewReady) {
                     action(current.sessionId, ShareOverlayAction.QQ_QZONE)
                 },
-            ), matchWrap(top = 4))
-            card.addView(actionRow(
-                actionButton("系统分享") {
-                    action(current.sessionId, ShareOverlayAction.SYSTEM_SHARE)
-                },
-                actionButton("复制链接") {
+            ), matchWrap(top = 8))
+            card.addView(tileRow(
+                actionTile(R.drawable.ic_copy, "复制链接", palette.accent) {
                     action(current.sessionId, ShareOverlayAction.COPY)
                 },
-            ), matchWrap(top = 4))
-            card.addView(actionRow(
-                actionButton("完整结果") {
+                actionTile(R.drawable.ic_share, "更多应用", palette.accent) {
+                    action(current.sessionId, ShareOverlayAction.SYSTEM_SHARE)
+                },
+                actionTile(R.drawable.ic_open_in_new, "完整结果", palette.accent) {
                     action(current.sessionId, ShareOverlayAction.OPEN_FULL_RESULT)
                 },
-                actionButton("关闭") {
-                    action(current.sessionId, ShareOverlayAction.CLOSE)
-                },
-            ), matchWrap(top = 4))
+                null,
+            ), matchWrap(top = 2))
         } else if (result != null) {
-            card.addView(actionRow(
-                actionButton("查看详情") {
+            card.addView(tileRow(
+                actionTile(R.drawable.ic_info, "查看详情", palette.accent) {
                     action(current.sessionId, ShareOverlayAction.OPEN_FULL_RESULT)
                 },
-                actionButton("关闭") {
-                    action(current.sessionId, ShareOverlayAction.CLOSE)
-                },
-            ), matchWrap(top = 6))
+                null,
+                null,
+                null,
+            ), matchWrap(top = 8))
         }
         return card
     }
 
     private fun createBubble(current: OverlayModel, size: Int): View = FrameLayout(context).apply {
+        val failed = current.result?.isSuccess == false
+        val working = current.result == null && !current.awaitingCopyConfirmation
         elevation = dp(10).toFloat()
         background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(if (current.result?.isSuccess == false) Color.rgb(180, 55, 55) else Color.rgb(32, 105, 215))
+            setColor(if (failed) Color.rgb(186, 26, 26) else BRAND_TEAL)
             setStroke(dp(2), Color.WHITE)
         }
         contentDescription = when {
-            current.awaitingCopyConfirmation -> "点击后复制并净化分享链接"
+            current.awaitingCopyConfirmation -> "点按后复制并净化分享链接"
             current.result == null -> "正在净化链接"
             else -> "打开净化结果"
         }
         isClickable = true
         isFocusable = true
-        addView(TextView(context).apply {
-            text = if (current.result == null && !current.awaitingCopyConfirmation) "…" else "净"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, if (current.result == null) 22f else 18f)
-        }, FrameLayout.LayoutParams(size, size))
+        if (working) {
+            val spinnerSize = (size * 0.5f).roundToInt()
+            addView(ProgressBar(context).apply {
+                isIndeterminate = true
+                indeterminateTintList = ColorStateList.valueOf(Color.WHITE)
+            }, FrameLayout.LayoutParams(spinnerSize, spinnerSize, Gravity.CENTER))
+        } else {
+            val icon = when {
+                failed -> R.drawable.ic_warning
+                current.result != null -> R.drawable.ic_check_circle
+                else -> R.drawable.ic_brand_mark
+            }
+            val iconSize = (size * 0.5f).roundToInt()
+            addView(iconView(icon, Color.WHITE), FrameLayout.LayoutParams(iconSize, iconSize, Gravity.CENTER))
+        }
     }
 
     private fun installBubbleDrag(view: View, safeBounds: IntRect, size: Int) {
@@ -596,40 +628,117 @@ class ShareOverlayController(
         actionListener.onAction(sessionId, action)
     }
 
-    private fun actionRow(vararg buttons: Button): LinearLayout = LinearLayout(context).apply {
+    private fun tileRow(vararg tiles: View?): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        buttons.forEachIndexed { index, button ->
-            addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                if (index > 0) marginStart = dp(4)
-            })
+        tiles.forEach { tile ->
+            addView(tile ?: View(context), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
     }
 
-    private fun actionButton(
+    /** Icon in a tinted circle above a short label, matching the in-app share grid. */
+    private fun actionTile(
+        @DrawableRes icon: Int,
         label: String,
+        tint: Int,
         enabled: Boolean = true,
         onClick: () -> Unit,
-    ): Button = Button(context).apply {
-        text = label
+    ): View = LinearLayout(context).apply {
+        val palette = palette()
+        setOnClickListener { if (enabled) onClick() }
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(2), dp(6), dp(2), dp(6))
         isEnabled = enabled
-        isAllCaps = false
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-        setPadding(dp(4), 0, dp(4), 0)
-        setOnClickListener { onClick() }
+        isClickable = enabled
+        isFocusable = true
+        alpha = if (enabled) 1f else 0.4f
+        contentDescription = label
+        background = RippleDrawable(
+            ColorStateList.valueOf(withAlpha(palette.foreground, 0.12f)),
+            null,
+            GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(Color.WHITE)
+            },
+        )
+        val badge = FrameLayout(context).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(withAlpha(tint, if (isDarkTheme()) 0.24f else 0.14f))
+            }
+            addView(
+                iconView(icon, tint),
+                FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER),
+            )
+        }
+        addView(badge, LinearLayout.LayoutParams(dp(42), dp(42)))
+        addView(textView(label, 11f, palette.foreground).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setPadding(0, dp(4), 0, 0)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun smallButton(label: String, onClick: () -> Unit): Button = Button(context).apply {
-        text = label
-        isAllCaps = false
-        minWidth = 0
-        minimumWidth = 0
-        minHeight = 0
-        minimumHeight = 0
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-        setPadding(dp(8), 0, dp(8), 0)
+    private fun iconButton(
+        @DrawableRes icon: Int,
+        label: String,
+        tint: Int,
+        onClick: () -> Unit,
+    ): View = FrameLayout(context).apply {
+        contentDescription = label
         setOnClickListener { onClick() }
+        isFocusable = true
+        background = RippleDrawable(
+            ColorStateList.valueOf(withAlpha(tint, 0.2f)),
+            null,
+            GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+            },
+        )
+        addView(iconView(icon, tint), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+        layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
     }
+
+    private fun iconView(@DrawableRes icon: Int, tint: Int): ImageView =
+        ImageView(context).apply {
+            setImageDrawable(context.getDrawable(icon)?.mutate()?.apply { setTint(tint) })
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+    private fun withAlpha(color: Int, alpha: Float): Int =
+        Color.argb((alpha * 255).roundToInt(), Color.red(color), Color.green(color), Color.blue(color))
+
+    private fun palette(): OverlayPalette = if (isDarkTheme()) {
+        OverlayPalette(
+            foreground = Color.rgb(222, 228, 226),
+            secondary = Color.rgb(176, 190, 187),
+            surface = Color.rgb(26, 33, 32),
+            border = Color.rgb(63, 73, 71),
+            accent = Color.rgb(138, 213, 203),
+            accentContainer = Color.rgb(15, 79, 75),
+        )
+    } else {
+        OverlayPalette(
+            foreground = Color.rgb(23, 29, 28),
+            secondary = Color.rgb(74, 99, 96),
+            surface = Color.WHITE,
+            border = Color.rgb(216, 226, 224),
+            accent = BRAND_TEAL,
+            accentContainer = Color.rgb(226, 245, 241),
+        )
+    }
+
+    private data class OverlayPalette(
+        val foreground: Int,
+        val secondary: Int,
+        val surface: Int,
+        val border: Int,
+        val accent: Int,
+        val accentContainer: Int,
+    )
 
     private fun textView(text: String, sizeSp: Float, color: Int, bold: Boolean = false): TextView =
         TextView(context).apply {
@@ -687,5 +796,8 @@ class ShareOverlayController(
         const val EDGE_MARGIN_DP = 12
         const val DRAG_SLOP_DP = 6
         const val DRAG_HANDLE_TAG = "share_overlay_drag_handle"
+        val BRAND_TEAL = Color.rgb(21, 91, 87)
+        val WECHAT_GREEN = Color.rgb(7, 193, 96)
+        val QQ_BLUE = Color.rgb(30, 155, 240)
     }
 }

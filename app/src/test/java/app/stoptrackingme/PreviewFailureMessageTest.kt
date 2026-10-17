@@ -14,7 +14,7 @@ class PreviewFailureMessageTest {
     @Test
     fun reportsPageSizeLimit() {
         assertEquals(
-            "公开网页内容超过 2 MiB，无法生成预览；将使用默认分享卡片。",
+            "网页内容超过 2 MB，无法生成卡片预览。",
             previewFailureMessage(PreviewResourceTooLargeException(2 * 1024 * 1024)),
         )
     }
@@ -22,7 +22,7 @@ class PreviewFailureMessageTest {
     @Test
     fun reportsHttpStatus() {
         assertEquals(
-            "公开网页返回 HTTP 412，无法生成预览；将使用默认分享卡片。",
+            "网页暂时无法访问（错误 412），无法生成卡片预览。",
             previewFailureMessage(PreviewHttpException(412)),
         )
     }
@@ -30,13 +30,13 @@ class PreviewFailureMessageTest {
     @Test
     fun reportsAccessFailureAndMissingMetadata() {
         assertEquals(
-            "公开网页跳转到访问限制页面，无法生成预览；将使用默认分享卡片。",
+            "网页设置了访问限制，无法生成卡片预览。",
             previewFailureMessage(
                 PreviewAccessBlockedException(URI("https://example.com/error")),
             ),
         )
         assertEquals(
-            "公开网页没有可用的标题、摘要或封面；将使用默认分享卡片。",
+            "网页没有提供标题、摘要或封面，无法生成卡片预览。",
             previewFailureMessage(PreviewMetadataUnavailableException()),
         )
     }
@@ -44,11 +44,11 @@ class PreviewFailureMessageTest {
     @Test
     fun recognizesNestedNetworkFailures() {
         assertEquals(
-            "读取公开网页超时；将使用默认分享卡片，可稍后重试。",
+            "网页加载超时，可稍后重试。",
             previewFailureMessage(IllegalStateException(SocketTimeoutException())),
         )
         assertEquals(
-            "无法解析公开网页域名；将使用默认分享卡片，可检查网络后重试。",
+            "无法连接到网页，请检查网络后重试。",
             previewFailureMessage(
                 NetworkResolutionException("解析失败", IllegalStateException()),
             ),

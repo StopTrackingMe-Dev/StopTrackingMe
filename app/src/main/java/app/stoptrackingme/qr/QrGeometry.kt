@@ -38,7 +38,7 @@ object QrGeometry {
         imageHeight: Int,
     ): QrGeometryResult {
         if (points.size != 4 || points.distinct().size != 4) {
-            return QrGeometryResult.Invalid("无法确定二维码的四个角点")
+            return QrGeometryResult.Invalid("无法确定二维码的位置")
         }
         if (imageWidth <= 0 || imageHeight <= 0 || points.any { point ->
                 !point.x.isFinite() || !point.y.isFinite() ||
@@ -46,7 +46,7 @@ object QrGeometry {
                     point.x > imageWidth.toFloat() || point.y > imageHeight.toFloat()
             }
         ) {
-            return QrGeometryResult.Invalid("二维码静区超出图片边界")
+            return QrGeometryResult.Invalid("二维码太靠近图片边缘，无法替换")
         }
 
         val centerX = points.sumOf { it.x.toDouble() }.toFloat() / points.size
@@ -63,14 +63,14 @@ object QrGeometry {
         if (crosses.any { abs(it) < 0.001f } ||
             !(crosses.all { it > 0f } || crosses.all { it < 0f })
         ) {
-            return QrGeometryResult.Invalid("二维码角点不是凸四边形")
+            return QrGeometryResult.Invalid("二维码变形过大，无法替换")
         }
 
         val edges = ordered.indices.map { index ->
             distance(ordered[index], ordered[(index + 1) % ordered.size])
         }
         if (edges.any { it < 1f }) {
-            return QrGeometryResult.Invalid("二维码区域过小")
+            return QrGeometryResult.Invalid("二维码在图片中太小")
         }
 
         val angles = ordered.indices.map { index ->
@@ -81,13 +81,13 @@ object QrGeometry {
             )
         }
         if (angles.any { it < MINIMUM_ANGLE_DEGREES || it > MAXIMUM_ANGLE_DEGREES }) {
-            return QrGeometryResult.Invalid("图片角度过大，仅支持旋转和轻度透视")
+            return QrGeometryResult.Invalid("二维码倾斜角度过大，请换一张更正的图片")
         }
 
         if (ratio(edges[0], edges[2]) > MAXIMUM_OPPOSITE_EDGE_RATIO ||
             ratio(edges[1], edges[3]) > MAXIMUM_OPPOSITE_EDGE_RATIO
         ) {
-            return QrGeometryResult.Invalid("图片透视过强，二维码相对边比例超出限制")
+            return QrGeometryResult.Invalid("二维码透视变形过大，请换一张拍得更正的图片")
         }
         return QrGeometryResult.Valid(QrQuadrilateral(ordered, edges))
     }

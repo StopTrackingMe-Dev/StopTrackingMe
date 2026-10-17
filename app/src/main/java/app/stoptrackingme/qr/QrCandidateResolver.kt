@@ -44,8 +44,8 @@ object QrCandidateResolver {
 
     fun unsupportedMessage(candidate: QrImageCandidate): String {
         val url = strictWebUrl(candidate.detection.rawValue)
-            ?: return "该二维码不是完整的 HTTP/HTTPS 链接"
+            ?: return "这个二维码不是网页链接"
         val host = runCatching { URI(url).host }.getOrNull().orEmpty()
-        return "没有支持 ${host.ifBlank { "该域名" }} 的净化规则"
+        return "暂不支持 ${host.ifBlank { "该网站" }} 的链接"
     }
 }

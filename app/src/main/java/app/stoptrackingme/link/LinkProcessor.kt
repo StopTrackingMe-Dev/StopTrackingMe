@@ -22,25 +22,25 @@ class LinkProcessor(
     ): CleanResult {
         onStage(LinkProcessingStage.EXTRACT)
         if (sourceText.isBlank()) {
-            return failure(sourceText, ProcessingFailure.CLIPBOARD_EMPTY, "剪贴板为空")
+            return failure(sourceText, ProcessingFailure.CLIPBOARD_EMPTY, "没有可处理的内容")
         }
         if (sourceText.length > rule.clipboardExtraction.maxInputLength) {
-            return failure(sourceText, ProcessingFailure.URL_NOT_FOUND, "剪贴板内容超过规则允许的长度")
+            return failure(sourceText, ProcessingFailure.URL_NOT_FOUND, "内容太长，无法识别其中的链接")
         }
         val extracted = UrlExtractor.extract(sourceText, rule.clipboardExtraction)
-            ?: return failure(sourceText, ProcessingFailure.URL_NOT_FOUND, "没有找到 HTTP/HTTPS URL")
+            ?: return failure(sourceText, ProcessingFailure.URL_NOT_FOUND, "没有找到网页链接")
         val originalUri = parseWebUri(extracted.value)
             ?: return failure(
                 sourceText,
                 ProcessingFailure.INVALID_URL,
-                "提取到的 URL 格式无效",
+                "链接格式不正确",
                 originalUrl = extracted.value,
                 urlCount = extracted.totalMatches,
             )
 
         val warnings = ArrayList<String>()
         if (extracted.totalMatches > 1) {
-            warnings += "检测到多个 URL；保留原文时只替换第一个已处理 URL。"
+            warnings += "内容中有多个 URL；保留原文案时只会替换第一个链接。"
         }
         onStage(LinkProcessingStage.RESOLVE)
         val policy = rule.redirectPolicy
@@ -75,7 +75,7 @@ class LinkProcessor(
             ?: return failure(
                 sourceText,
                 ProcessingFailure.INVALID_URL,
-                "展开后的 URL 格式无效",
+                "短链接展开后的地址格式不正确",
                 originalUrl = extracted.value,
                 expandedUrl = resolvedUrl,
                 urlCount = extracted.totalMatches,
@@ -86,13 +86,13 @@ class LinkProcessor(
                 ?: return failure(
                     sourceText,
                     ProcessingFailure.REDIRECT_FAILED,
-                    "链接跳转到访问限制页面，且无法恢复原始地址",
+                    "链接跳转到了访问限制页面，无法找回原始地址",
                     originalUrl = extracted.value,
                     expandedUrl = resolvedUrl,
                     urlCount = extracted.totalMatches,
                     warnings = warnings,
                 )
-            warnings += "检测到访问限制页面；已恢复原始内容地址。"
+            warnings += "链接曾跳转到访问限制页面，已恢复原始内容地址。"
             expandedUri.toASCIIString()
         } else {
             resolvedUrl
@@ -101,7 +101,7 @@ class LinkProcessor(
             return failure(
                 sourceText,
                 ProcessingFailure.DISALLOWED_HOST,
-                "最终地址不属于规则允许的域名",
+                "链接最终指向的网站不在规则允许范围内，为安全起见未处理",
                 originalUrl = extracted.value,
                 expandedUrl = expandedUrl,
                 urlCount = extracted.totalMatches,
@@ -116,14 +116,14 @@ class LinkProcessor(
             return failure(
                 sourceText,
                 ProcessingFailure.INVALID_URL,
-                "无法安全重建 URL",
+                "无法生成净化后的链接",
                 originalUrl = extracted.value,
                 expandedUrl = expandedUrl,
                 urlCount = extracted.totalMatches,
                 warnings = warnings,
             )
         }
-        if (cleaned.removedParameters.isEmpty()) warnings += "未发现规则中列出的追踪参数。"
+        if (cleaned.removedParameters.isEmpty()) warnings += "没有发现需要去除的追踪参数。"
         return CleanResult(
             sourceText = sourceText,
             originalUrl = extracted.value,

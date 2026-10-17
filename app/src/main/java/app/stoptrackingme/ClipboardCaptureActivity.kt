@@ -69,7 +69,7 @@ class ClipboardCaptureActivity : Activity() {
         CapturedShareProcessor.publishClipboardFailure(
             context = this,
             sessionId = sessionId,
-            message = "剪贴板为空或复制尚未完成",
+            message = "没有读取到复制的链接，请重新分享一次",
             onResultReady = {
                 presentResult()
                 close()
@@ -85,7 +85,7 @@ class ClipboardCaptureActivity : Activity() {
             if (!handled) {
                 ServiceStatus.update(
                     this,
-                    "悬浮窗显示失败；已停止自动跳转，请重新分享或手动打开应用",
+                    "结果未能显示，请重新分享一次",
                     AutomationStage.SHOW_RESULT,
                 )
             }
