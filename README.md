@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases"><img src="https://img.shields.io/badge/Release-v0.2.0--beta-388E3C?style=flat-square" alt="Release"></a>
+  <a href="https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases"><img src="https://img.shields.io/badge/Release-v0.3.0--beta-388E3C?style=flat-square" alt="Release"></a>
   <a href="https://developer.android.com/about/versions/oreo"><img src="https://img.shields.io/badge/Android-8.0%2B%20(API%2026%2B)-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform"></a>
   <a href="https://kotlinlang.org/"><img src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Tech"></a>
   <a href="https://material.io/design"><img src="https://img.shields.io/badge/Design-Material%203-006A6A?style=flat-square" alt="Material 3"></a>
