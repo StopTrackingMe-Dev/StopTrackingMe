@@ -45,24 +45,28 @@ class QrCandidateResolverTest {
     }
 
     @Test
-    fun overlappingRulesRemainAnExplicitQrRuleChoice() {
+    fun overlappingRulesUseFirstRuleInPriorityOrder() {
         val second = bilibili.copy(
             id = "second",
             source = RuleSource(RuleSourceKind.LOCAL, "second.json"),
         )
 
-        val candidate = QrCandidateResolver.resolve(
-            listOf(detection("https://b23.tv/example")),
-            listOf(
-                InstalledRule("built-in", bilibili),
-                InstalledRule("local", second),
-            ),
-        ).single()
-
-        assertEquals(
-            listOf("built-in", "local"),
-            candidate.ruleCandidates.map { it.installed.key },
+        val rules = listOf(
+            InstalledRule("built-in", bilibili),
+            InstalledRule("local", second),
         )
+
+        listOf(rules, rules.reversed()).forEach { prioritizedRules ->
+            val candidate = QrCandidateResolver.resolve(
+                listOf(detection("https://b23.tv/example")),
+                prioritizedRules,
+            ).single()
+
+            assertEquals(
+                listOf(prioritizedRules.first().key),
+                candidate.ruleCandidates.map { it.installed.key },
+            )
+        }
     }
 
     private fun detection(rawValue: String) = DetectedQrCode(

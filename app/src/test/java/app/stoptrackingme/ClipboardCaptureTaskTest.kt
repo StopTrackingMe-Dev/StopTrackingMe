@@ -29,8 +29,8 @@ class ClipboardCaptureTaskTest {
             File("app/src/main/java/app/stoptrackingme/ShareAccessibilityService.kt"),
         ).firstOrNull(File::isFile)?.readText() ?: error("找不到 ShareAccessibilityService.kt")
         val removal = Regex(
-            """private fun removeClipboardFocusBridge\(\).*?\n    }\n\n    /\*\*""",
-            setOf(RegexOption.DOT_MATCHES_ALL),
+            """^    private fun removeClipboardFocusBridge\(\) \{.*?^    \}""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE),
         ).find(source)?.value ?: error("找不到剪贴板焦点桥接窗口的移除逻辑")
 
         assertTrue(source.contains("handler.post { beginClipboardFocusRead(sessionId, view) }"))
