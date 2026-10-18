@@ -16,7 +16,7 @@ enum class ResultPresentationMode {
 
     companion object {
         fun fromStored(value: String?): ResultPresentationMode =
-            entries.firstOrNull { it.name == value } ?: APP_PAGE
+            entries.firstOrNull { it.name == value } ?: ACCESSIBILITY_OVERLAY
     }
 }
 

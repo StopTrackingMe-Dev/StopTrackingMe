@@ -7,9 +7,17 @@ import org.junit.Test
 
 class ResultPresentationModeTest {
     @Test
-    fun `missing or invalid stored values keep existing app page behavior`() {
-        assertEquals(ResultPresentationMode.APP_PAGE, ResultPresentationMode.fromStored(null))
-        assertEquals(ResultPresentationMode.APP_PAGE, ResultPresentationMode.fromStored("UNKNOWN"))
+    fun `missing or invalid stored values default to overlay mode`() {
+        assertEquals(ResultPresentationMode.ACCESSIBILITY_OVERLAY, ResultPresentationMode.fromStored(null))
+        assertEquals(ResultPresentationMode.ACCESSIBILITY_OVERLAY, ResultPresentationMode.fromStored("UNKNOWN"))
+    }
+
+    @Test
+    fun `explicit app page preference is preserved`() {
+        assertEquals(
+            ResultPresentationMode.APP_PAGE,
+            ResultPresentationMode.fromStored(ResultPresentationMode.APP_PAGE.name),
+        )
     }
 
     @Test

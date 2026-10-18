@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
     private var serviceState by mutableStateOf("")
     private var batteryOptimizationDisabled by mutableStateOf(true)
     private var firstRunGuideVisible by mutableStateOf(false)
-    private var resultPresentationMode by mutableStateOf(ResultPresentationMode.APP_PAGE)
+    private var resultPresentationMode by mutableStateOf(ResultPresentationMode.ACCESSIBILITY_OVERLAY)
     private var qqSdkConsentGranted by mutableStateOf(false)
     private var weChatSdkConsentGranted by mutableStateOf(false)
     private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)

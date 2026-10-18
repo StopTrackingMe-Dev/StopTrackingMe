@@ -91,7 +91,7 @@ import java.net.SocketTimeoutException
 class ResultActivity : ComponentActivity() {
     private lateinit var sessionId: String
     private var session by mutableStateOf<ShareSession?>(null)
-    private var preserveOriginalText by mutableStateOf(false)
+    private var preserveOriginalText by mutableStateOf(true)
     private var retrying by mutableStateOf(false)
     private var openMessage by mutableStateOf<String?>(null)
     private var sharePreview by mutableStateOf<WebSharePreview?>(null)
