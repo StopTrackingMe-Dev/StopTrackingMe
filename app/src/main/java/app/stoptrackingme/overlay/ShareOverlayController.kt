@@ -632,7 +632,9 @@ class ShareOverlayController(
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         tiles.forEach { tile ->
-            addView(tile ?: View(context), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            // A bare View fills an AT_MOST spec, so empty slots need an explicit zero height.
+            val height = if (tile == null) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
+            addView(tile ?: View(context), LinearLayout.LayoutParams(0, height, 1f))
         }
     }
 
