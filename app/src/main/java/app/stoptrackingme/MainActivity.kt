@@ -126,6 +126,7 @@ class MainActivity : ComponentActivity() {
     private var batteryOptimizationDisabled by mutableStateOf(true)
     private var firstRunGuideVisible by mutableStateOf(false)
     private var resultPresentationMode by mutableStateOf(ResultPresentationMode.ACCESSIBILITY_OVERLAY)
+    private var preserveOriginalText by mutableStateOf(true)
     private var qqSdkConsentGranted by mutableStateOf(false)
     private var weChatSdkConsentGranted by mutableStateOf(false)
     private var usageReportingConsent by mutableStateOf(UsageReportingConsent.UNSET)
@@ -194,6 +195,7 @@ class MainActivity : ComponentActivity() {
         QQShareActivity.cleanupExpiredThumbnails(cacheDir)
         reloadCatalog()
         resultPresentationMode = ResultPresentationPreferences.get(this)
+        preserveOriginalText = ShareTextPreferences.preserveOriginalText(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         weChatSdkConsentGranted = WeChatSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
@@ -369,6 +371,14 @@ class MainActivity : ComponentActivity() {
                             DefaultBrowserCard(
                                 enabled = !busy,
                                 onRequestBrowserRole = ::requestDefaultBrowserRole,
+                            )
+
+                            ShareTextSettingsCard(
+                                preserveOriginalText = preserveOriginalText,
+                                onPreserveChange = { preserve ->
+                                    ShareTextPreferences.setPreserveOriginalText(this@MainActivity, preserve)
+                                    preserveOriginalText = preserve
+                                },
                             )
 
                             SectionLabel("应用")
@@ -601,6 +611,7 @@ class MainActivity : ComponentActivity() {
         reloadCatalog()
         refreshSubscriptionsIfNeeded()
         resultPresentationMode = ResultPresentationPreferences.get(this)
+        preserveOriginalText = ShareTextPreferences.preserveOriginalText(this)
         qqSdkConsentGranted = QQSdkConsent.isGranted(this)
         weChatSdkConsentGranted = WeChatSdkConsent.isGranted(this)
         usageReportingConsent = UsageReporter.getConsent(this)
@@ -1723,6 +1734,35 @@ private fun ResultPresentationCard(
             )
         }
         HintText("悬浮窗中可直接复制或转发")
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun ShareTextSettingsCard(
+    preserveOriginalText: Boolean,
+    onPreserveChange: (Boolean) -> Unit,
+) {
+    SectionCard(
+        icon = R.drawable.ic_share,
+        title = "默认分享内容",
+    ) {
+        ChoiceGroup {
+            ChoicePill(
+                icon = R.drawable.ic_link,
+                label = "仅链接",
+                selected = !preserveOriginalText,
+                onClick = { onPreserveChange(false) },
+                modifier = Modifier.weight(1f),
+            )
+            ChoicePill(
+                icon = R.drawable.ic_chat,
+                label = "保留原文案",
+                selected = preserveOriginalText,
+                onClick = { onPreserveChange(true) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        HintText("悬浮窗的系统分享使用此设置；应用内分享时可单次更改")
     }
 }
 

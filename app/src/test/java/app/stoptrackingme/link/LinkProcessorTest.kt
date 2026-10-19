@@ -92,6 +92,21 @@ class LinkProcessorTest {
     }
 
     @Test
+    fun shareTextChoicePreservesMultilineCopyOrReturnsOnlyCleanedLink() {
+        val source = "推荐这个视频 🎬\nhttps://www.bilibili.com/video/BV1?utm_source=x&p=2\n一起看看！"
+        val result = LinkProcessor().process(source, rule)
+
+        assertEquals(
+            "推荐这个视频 🎬\nhttps://www.bilibili.com/video/BV1?p=2\n一起看看！",
+            ShareTextBuilder.build(result, true, rule.clipboardExtraction),
+        )
+        assertEquals(
+            "https://www.bilibili.com/video/BV1?p=2",
+            ShareTextBuilder.build(result, false, rule.clipboardExtraction),
+        )
+    }
+
+    @Test
     fun reportsProcessingStagesInOrder() {
         val stages = ArrayList<LinkProcessingStage>()
 

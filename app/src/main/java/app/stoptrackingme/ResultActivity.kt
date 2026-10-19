@@ -114,6 +114,10 @@ class ResultActivity : ComponentActivity() {
         enableEdgeToEdge()
         sessionId = intent.getStringExtra(EXTRA_SESSION_ID).orEmpty()
         session = ShareSessionStore.get(sessionId)
+        preserveOriginalText = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_PRESERVE_ORIGINAL_TEXT) }
+            ?.getBoolean(STATE_PRESERVE_ORIGINAL_TEXT)
+            ?: ShareTextPreferences.preserveOriginalText(this)
         ShareOverlayCoordinator.dispatch(ShareOverlayEvent.ResultPageOpened(sessionId))
 
         setContent {
@@ -168,6 +172,11 @@ class ResultActivity : ComponentActivity() {
             }
         }
         loadSharePreview()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_PRESERVE_ORIGINAL_TEXT, preserveOriginalText)
     }
 
     override fun onDestroy() {
@@ -383,6 +392,7 @@ class ResultActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SESSION_ID = "session_id"
+        private const val STATE_PRESERVE_ORIGINAL_TEXT = "preserve_original_text"
     }
 }
 
@@ -545,7 +555,7 @@ private fun ResultContent(
         ChoiceGroup {
             ChoicePill(
                 icon = R.drawable.ic_link,
-                label = "只发链接",
+                label = "仅链接",
                 selected = !preserveOriginalText,
                 onClick = { onPreserveChange(false) },
                 modifier = Modifier.weight(1f),

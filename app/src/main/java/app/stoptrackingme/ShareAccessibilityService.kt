@@ -29,6 +29,7 @@ import app.stoptrackingme.automation.AccessibilityTree
 import app.stoptrackingme.automation.AutomationRuntime
 import app.stoptrackingme.automation.AutomationSafety
 import app.stoptrackingme.automation.AutomationStage
+import app.stoptrackingme.link.ShareTextBuilder
 import app.stoptrackingme.overlay.ShareOverlayAction
 import app.stoptrackingme.overlay.ShareOverlayActionListener
 import app.stoptrackingme.overlay.ShareOverlayController
@@ -1128,7 +1129,14 @@ class ShareAccessibilityService : AccessibilityService() {
         ) {
             return
         }
-        val cleanedUrl = ShareSessionStore.get(sessionId)?.result?.cleanedUrl ?: return
+        val session = ShareSessionStore.get(sessionId) ?: return
+        val result = session.result ?: return
+        val installed = rules.findInstalledRule(session.ruleKey) ?: return
+        val shareText = ShareTextBuilder.build(
+            result = result,
+            preserveOriginalText = ShareTextPreferences.preserveOriginalText(this),
+            extractionRule = installed.rule.clipboardExtraction,
+        ) ?: return
         pendingSystemShareSessionId = sessionId
 
         // Keep a visible window owned by this UID until the chooser launch has crossed the
@@ -1155,7 +1163,7 @@ class ShareAccessibilityService : AccessibilityService() {
             }
             val launchError = runCatching {
                 startActivity(
-                    ShareIntentFactory.createChooser(cleanedUrl)
+                    ShareIntentFactory.createChooser(shareText)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }.exceptionOrNull()
