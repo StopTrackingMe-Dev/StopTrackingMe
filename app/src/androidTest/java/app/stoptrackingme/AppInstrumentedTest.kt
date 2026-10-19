@@ -142,16 +142,17 @@ class AppInstrumentedTest {
     }
 
     @Test
-    fun validatedLocalImportCreatesExplicitConflict() {
+    fun validatedLocalImportUsesSourcePriority() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val repository = RuleRepository.get(context)
         val bytes = context.assets.open("rules/bilibili.json").use { it.readBytes() }
         val imported = repository.importLocal(bytes.inputStream()).rules.single()
 
         assertEquals(RuleSourceKind.LOCAL, imported.source.kind)
-        assertTrue(
-            repository.resolveActiveRule(imported.target.packageName) is
-                ActiveRuleResolution.Conflict,
+        val active = repository.resolveActiveRule(imported.target.packageName) as ActiveRuleResolution.Active
+        assertEquals(
+            repository.compatibleInstalledRules(imported.target.packageName).first().key,
+            active.installed.key,
         )
     }
 

@@ -25,8 +25,8 @@ class ClipboardCaptureTaskTest {
     @Test
     fun `focus bridge removal is deferred outside EMUI focus callback`() {
         val source = listOf(
-            File("src/main/java/app/stoptrackingme/ShareAccessibilityService.kt"),
-            File("app/src/main/java/app/stoptrackingme/ShareAccessibilityService.kt"),
+            File("src/withAccessibility/java/app/stoptrackingme/ShareAccessibilityService.kt"),
+            File("app/src/withAccessibility/java/app/stoptrackingme/ShareAccessibilityService.kt"),
         ).firstOrNull(File::isFile)?.readText() ?: error("找不到 ShareAccessibilityService.kt")
         val removal = Regex(
             """^    private fun removeClipboardFocusBridge\(\) \{.*?^    \}""",

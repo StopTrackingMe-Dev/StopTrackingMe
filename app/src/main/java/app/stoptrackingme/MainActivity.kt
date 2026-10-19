@@ -53,7 +53,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -81,6 +80,7 @@ import app.stoptrackingme.link.UrlRuleMatcher
 import app.stoptrackingme.link.UrlRuleResolution
 import app.stoptrackingme.presentation.ResultPresentationMode
 import app.stoptrackingme.presentation.ResultPresentationPreferences
+import app.stoptrackingme.tiles.QuickTileAction
 import app.stoptrackingme.session.ShareSessionStore
 import app.stoptrackingme.ui.components.BannerTone
 import app.stoptrackingme.ui.components.ChoiceGroup
@@ -147,6 +147,8 @@ class MainActivity : ComponentActivity() {
     private var cacheActionBusy by mutableStateOf(false)
     private var pendingInstallUpdate: DownloadedAppUpdate? = null
     private var pendingStartupIntent: Intent? = null
+    private var pendingTileAction: QuickTileAction? = null
+    private var selectedSectionName by mutableStateOf(MainSection.HOME.name)
 
     private val importRuleDocument =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -187,6 +189,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedSectionName = savedInstanceState?.getString("selected_section") ?: MainSection.HOME.name
+        pendingTileAction = QuickTileAction.fromIntentAction(savedInstanceState?.getString("pending_tile_action"))
         repository = RuleRepository.get(this)
         cacheManager = AppCacheManager(cacheDir)
         AppUpdateCache.clear(cacheDir)
@@ -206,9 +210,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
-                var selectedSectionName by rememberSaveable {
-                    mutableStateOf(MainSection.HOME.name)
-                }
                 val selectedSection = MainSection.valueOf(selectedSectionName)
 
                 Scaffold(
@@ -225,14 +226,16 @@ class MainActivity : ComponentActivity() {
                             PageHeader(title = stringResource(R.string.app_name))
                             OperationMessage(operationMessage)
 
-                            AccessibilityServiceCard(
-                                enabled = serviceEnabled,
-                                connected = serviceConnected,
-                                status = serviceState,
-                                onOpenSettings = {
-                                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                },
-                            )
+                            if (BuildConfig.HAS_ACCESSIBILITY) {
+                                AccessibilityServiceCard(
+                                    enabled = serviceEnabled,
+                                    connected = serviceConnected,
+                                    status = serviceState,
+                                    onOpenSettings = {
+                                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                    },
+                                )
+                            }
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -346,22 +349,33 @@ class MainActivity : ComponentActivity() {
                             PageHeader(title = "设置")
                             OperationMessage(operationMessage)
 
-                            SectionLabel("自动净化")
-                            BackgroundRunSettingsCard(
-                                guide = backgroundRunGuide,
-                                batteryOptimizationDisabled = batteryOptimizationDisabled,
-                                onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
-                                onOpenAppDetails = ::openBackgroundAppDetails,
-                                onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
-                            )
+                            if (BuildConfig.HAS_ACCESSIBILITY) {
+                                SectionLabel("自动净化")
+                                BackgroundRunSettingsCard(
+                                    guide = backgroundRunGuide,
+                                    batteryOptimizationDisabled = batteryOptimizationDisabled,
+                                    onOpenManufacturerSettings = ::openManufacturerBackgroundSettings,
+                                    onOpenAppDetails = ::openBackgroundAppDetails,
+                                    onOpenBatteryOptimization = ::openBatteryOptimizationSettings,
+                                )
 
-                            ResultPresentationCard(
-                                resultPresentationMode = resultPresentationMode,
-                                onResultPresentationModeChange = { mode ->
-                                    ResultPresentationPreferences.set(this@MainActivity, mode)
-                                    resultPresentationMode = mode
-                                },
-                            )
+                                ResultPresentationCard(
+                                    resultPresentationMode = resultPresentationMode,
+                                    onResultPresentationModeChange = { mode ->
+                                        ResultPresentationPreferences.set(this@MainActivity, mode)
+                                        resultPresentationMode = mode
+                                    },
+                                )
+                            }
+
+                            SectionCard(
+                                icon = R.drawable.ic_touch,
+                                title = "快捷磁贴",
+                                subtitle = "从下拉快捷设置面板快速使用",
+                            ) {
+                                HintText("下拉系统快捷设置，点编辑，将“打开勿追踪”和“剪贴板净链”拖入面板。")
+                                if (QrFeature.isAvailable) HintText("还可添加“图片二维码净化”，点击后直接选择相册图片。")
+                            }
 
                             DefaultBrowserCard(
                                 enabled = !busy,
@@ -563,12 +577,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        if (savedInstanceState?.getString("pending_tile_action") != null) {
+            setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+        }
         handleIncomingIntentWhenAllowed(intent)
         checkForUpdates(interactive = false, targetVariant = currentVariant)
         refreshCacheSnapshot()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("selected_section", selectedSectionName)
+        val tileAction = pendingTileAction ?: QuickTileAction.fromIntentAction(pendingStartupIntent?.action)
+        outState.putString("pending_tile_action", tileAction?.intentAction)
         outState.putBoolean(STATE_FIRST_RUN_GUIDE_VISIBLE, firstRunGuideVisible)
         super.onSaveInstanceState(outState)
     }
@@ -580,6 +600,23 @@ class MainActivity : ComponentActivity() {
             continueStartupActionsIfAllowed()
         } else {
             handleIncomingIntentWhenAllowed(intent)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) runPendingTileAction()
+    }
+
+    private fun runPendingTileAction() {
+        if (!startupActionsAllowed() || !hasWindowFocus()) return
+        val action = pendingTileAction ?: return
+        pendingTileAction = null
+        selectedSectionName = MainSection.HOME.name
+        when (action) {
+            QuickTileAction.OPEN_APP -> Unit
+            QuickTileAction.CLEAN_CLIPBOARD -> readClipboard()
+            QuickTileAction.PICK_QR_IMAGE -> if (QrFeature.isAvailable) launchQrImagePicker()
         }
     }
 
@@ -656,6 +693,7 @@ class MainActivity : ComponentActivity() {
             pendingStartupIntent = null
             handleIncomingIntent(pending)
         }
+        runPendingTileAction()
     }
 
     private fun reloadCatalog() {
@@ -796,6 +834,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(incoming: Intent) {
+        val tileAction = QuickTileAction.fromIntentAction(incoming.action)
+        if (tileAction != null) {
+            pendingTileAction = tileAction
+            setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+            runPendingTileAction()
+            return
+        }
         val consumed = when (incoming.action) {
             Intent.ACTION_VIEW -> {
                 handleViewIntent(incoming)
@@ -1471,40 +1516,42 @@ private fun FirstRunGuideDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("完成以下设置，分享时自动净化链接")
+                Text(if (BuildConfig.HAS_ACCESSIBILITY) "完成以下设置，分享时自动净化链接" else "通过系统分享、剪贴板或快捷磁贴净化链接")
 
-                GuideStep(
-                    icon = R.drawable.ic_accessibility,
-                    title = "开启自动净化",
-                    description = "点分享时自动复制并净化链接",
-                    done = accessibilityEnabled,
-                    doneLabel = "已开启",
-                    pendingLabel = "未开启",
-                ) {
-                    Button(
-                        onClick = onOpenAccessibilitySettings,
-                        modifier = Modifier.fillMaxWidth(),
+                if (BuildConfig.HAS_ACCESSIBILITY) {
+                    GuideStep(
+                        icon = R.drawable.ic_accessibility,
+                        title = "开启自动净化",
+                        description = "点分享时自动复制并净化链接",
+                        done = accessibilityEnabled,
+                        doneLabel = "已开启",
+                        pendingLabel = "未开启",
                     ) {
-                        Text(if (accessibilityEnabled) "管理无障碍服务" else "去开启")
+                        Button(
+                            onClick = onOpenAccessibilitySettings,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (accessibilityEnabled) "管理无障碍服务" else "去开启")
+                        }
                     }
-                }
 
-                GuideStep(
-                    icon = R.drawable.ic_battery,
-                    title = "允许后台运行",
-                    description = "避免被系统清理而失效",
-                    done = batteryOptimizationDisabled,
-                    doneLabel = "电池优化已关闭",
-                    pendingLabel = "电池优化未关闭",
-                ) {
-                    Button(
-                        onClick = onOpenManufacturerSettings,
-                        modifier = Modifier.fillMaxWidth(),
+                    GuideStep(
+                        icon = R.drawable.ic_battery,
+                        title = "允许后台运行",
+                        description = "避免被系统清理而失效",
+                        done = batteryOptimizationDisabled,
+                        doneLabel = "电池优化已关闭",
+                        pendingLabel = "电池优化未关闭",
                     ) {
-                        Text(guide.settingsButtonLabel)
-                    }
-                    TextButton(onClick = onOpenBatteryOptimization) {
-                        Text("电池优化设置")
+                        Button(
+                            onClick = onOpenManufacturerSettings,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(guide.settingsButtonLabel)
+                        }
+                        TextButton(onClick = onOpenBatteryOptimization) {
+                            Text("电池优化设置")
+                        }
                     }
                 }
 
@@ -1741,7 +1788,7 @@ private fun ShareTextSettingsCard(
                 modifier = Modifier.weight(1f),
             )
         }
-        HintText("悬浮窗的系统分享使用此设置；应用内分享时可单次更改")
+        HintText(if (BuildConfig.HAS_ACCESSIBILITY) "悬浮窗的系统分享使用此设置；应用内分享时可单次更改" else "应用内分享时可单次更改")
     }
 }
 
@@ -1967,7 +2014,9 @@ private fun RuleCatalogSection(
                         "${sourceLabel(active.installed.rule.source)} · 版本 ${active.installed.rule.version}",
                     )
                 }
-                active?.let { CopyTriggerChoice(it.installed, copyTriggerMode, onCopyTriggerModeChange) }
+                if (BuildConfig.HAS_ACCESSIBILITY) {
+                    active?.let { CopyTriggerChoice(it.installed, copyTriggerMode, onCopyTriggerModeChange) }
+                }
             }
         }
 }

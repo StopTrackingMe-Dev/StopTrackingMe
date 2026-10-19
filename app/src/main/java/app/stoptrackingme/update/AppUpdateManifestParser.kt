@@ -78,9 +78,7 @@ internal object AppUpdateManifestParser {
         val fileName = source.apkFileName()
             ?: "app-release.apk"
         val variant = selectedAsset?.variant
-            ?: source.declaredVariant("更新 APK")
-            ?: rootVariant
-            ?: AppVariant.fromApkFileName(fileName)
+            ?: source.resolvedVariant(fileName, rootVariant)
             ?: AppVariant.FULL
         if (variant != requestedVariant) {
             throw AppUpdateException("更新信息没有 ${requestedVariant.displayName} APK")
@@ -134,10 +132,7 @@ internal object AppUpdateManifestParser {
             val fileName = asset.apkFileName()
                 ?.takeIf { it.lowercase(Locale.ROOT).endsWith(".apk") }
                 ?: return@mapNotNull null
-            val variant = asset.declaredVariant("更新 APK")
-                ?: AppVariant.fromApkFileName(fileName)
-                ?: rootVariant
-                ?: AppVariant.FULL
+            val variant = asset.resolvedVariant(fileName, rootVariant) ?: AppVariant.FULL
             if (variant != requestedVariant) return@mapNotNull null
             val declaredAbi = asset.declaredAbi()
             SelectedApk(
@@ -189,6 +184,15 @@ internal object AppUpdateManifestParser {
             ?: throw AppUpdateException("$label 的版本类型无效")
         return AppVariant.fromWireValue(value)
             ?: throw AppUpdateException("$label 的版本类型无效")
+    }
+
+    private fun JsonObject.resolvedVariant(fileName: String, rootVariant: AppVariant?): AppVariant? {
+        val declared = declaredVariant("更新 APK")
+        val fromName = AppVariant.fromApkFileName(fileName)
+        if (declared != null && fromName != null && declared != fromName) {
+            throw AppUpdateException("更新 APK 的版本类型与文件名不一致")
+        }
+        return declared ?: fromName ?: rootVariant
     }
 
     private fun JsonObject.declaredAbi(): String? {

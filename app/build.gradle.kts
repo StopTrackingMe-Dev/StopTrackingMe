@@ -37,17 +37,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    flavorDimensions += "edition"
+    flavorDimensions += listOf("edition", "accessibility")
     productFlavors {
         create("minimal") {
             dimension = "edition"
-            buildConfigField("String", "APP_VARIANT", "\"minimal\"")
+            buildConfigField("String", "APP_VARIANT", "\"minimal\" + (BuildConfig.HAS_ACCESSIBILITY ? \"\" : \"-without-accessibility\")")
             manifestPlaceholders["appVariant"] = "minimal"
         }
         create("full") {
             dimension = "edition"
-            buildConfigField("String", "APP_VARIANT", "\"full\"")
+            buildConfigField("String", "APP_VARIANT", "\"full\" + (BuildConfig.HAS_ACCESSIBILITY ? \"\" : \"-without-accessibility\")")
             manifestPlaceholders["appVariant"] = "full"
+        }
+        create("withAccessibility") {
+            dimension = "accessibility"
+            buildConfigField("boolean", "HAS_ACCESSIBILITY", "true")
+        }
+        create("withoutAccessibility") {
+            dimension = "accessibility"
+            buildConfigField("boolean", "HAS_ACCESSIBILITY", "false")
         }
     }
 

@@ -2,6 +2,7 @@ package app.stoptrackingme.presentation
 
 import android.content.Context
 import androidx.core.content.edit
+import app.stoptrackingme.BuildConfig
 
 enum class ResultPresentationMode {
     APP_PAGE,
@@ -24,7 +25,9 @@ object ResultPresentationPreferences {
     private const val PREFERENCES = "result_presentation"
     private const val KEY_MODE = "mode"
 
-    fun get(context: Context): ResultPresentationMode = ResultPresentationMode.fromStored(
+    fun get(context: Context): ResultPresentationMode = if (!BuildConfig.HAS_ACCESSIBILITY) {
+        ResultPresentationMode.APP_PAGE
+    } else ResultPresentationMode.fromStored(
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .getString(KEY_MODE, null),
     )

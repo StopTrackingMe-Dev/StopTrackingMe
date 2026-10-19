@@ -26,10 +26,26 @@ internal object AppUpdateInstaller {
             )
         } ?: throw AppUpdateException("下载文件不是有效的 Android 安装包")
 
-        val archiveVariant = packageInfo.applicationInfo?.metaData
-            ?.getString(APP_VARIANT_META_DATA)
+        val metadata = packageInfo.applicationInfo?.metaData
+        val archiveVariant = metadata?.getString(APP_VARIANT_META_DATA)
             ?.let(AppVariant::fromWireValue)
+            ?.withAccessibility(metadata.getBoolean(ACCESSIBILITY_META_DATA, true))
             ?: throw AppUpdateException("下载 APK 缺少版本类型标识")
+        val servicesInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageArchiveInfo(
+                update.file.absolutePath,
+                PackageManager.PackageInfoFlags.of(PackageManager.GET_SERVICES.toLong()),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageArchiveInfo(update.file.absolutePath, PackageManager.GET_SERVICES)
+        }
+        val hasAccessibilityService = servicesInfo?.services.orEmpty().any {
+            it.permission == android.Manifest.permission.BIND_ACCESSIBILITY_SERVICE
+        }
+        if (hasAccessibilityService != archiveVariant.hasAccessibility) {
+            throw AppUpdateException("下载 APK 的无障碍服务与版本标识不一致")
+        }
         val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             packageInfo.longVersionCode
         } else {
@@ -105,6 +121,7 @@ internal object AppUpdateInstaller {
         AppVariant.fromWireValue(BuildConfig.APP_VARIANT)
             ?: throw AppUpdateException("未知的应用版本：${BuildConfig.APP_VARIANT}")
 
+    private const val ACCESSIBILITY_META_DATA = "app.stoptrackingme.HAS_ACCESSIBILITY"
     private const val APP_VARIANT_META_DATA = "app.stoptrackingme.APP_VARIANT"
 }
 

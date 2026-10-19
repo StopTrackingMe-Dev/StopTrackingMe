@@ -8,9 +8,7 @@ import java.io.File
 class PrivacyBoundaryTest {
     @Test
     fun productionKotlinHasNoTargetSpecificApplicationConstants() {
-        val text = mainSourceDirectory().walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .joinToString("\n") { it.readText() }
+        val text = productionKotlinText()
 
         listOf(
             "tv.danmaku.bili",
@@ -31,9 +29,7 @@ class PrivacyBoundaryTest {
 
     @Test
     fun productionCodeDoesNotPersistOrLogCapturedLinks() {
-        val text = mainSourceDirectory().walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
-            .joinToString("\n") { it.readText() }
+        val text = productionKotlinText()
 
         assertFalse(text.contains("KEY_LAST_LINK"))
         assertFalse(text.contains("Captured link"))
@@ -84,6 +80,14 @@ class PrivacyBoundaryTest {
             Regex("""putString\s*\([^)]*(rawValue|cleanedUrl|sourceText)""")
                 .containsMatchIn(text),
         )
+    }
+
+    private fun productionKotlinText(): String {
+        val sourceRoot = mainSourceDirectory().parentFile.parentFile
+        return listOf("main", "full", "minimal", "withAccessibility", "withoutAccessibility")
+            .flatMap { File(sourceRoot, "$it/java").walkTopDown().filter(File::isFile).toList() }
+            .filter { it.extension == "kt" }
+            .joinToString("\n") { it.readText() }
     }
 
     private fun mainSourceDirectory(): File {

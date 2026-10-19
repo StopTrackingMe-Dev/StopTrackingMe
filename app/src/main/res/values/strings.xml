@@ -2,4 +2,7 @@
     <string name="app_name">Stop Tracking</string>
     <string name="accessibility_service_label">自动净化分享链接</string>
     <string name="accessibility_service_description">在支持的应用中点击分享时，自动帮你点一次“复制链接”，去掉链接中的追踪参数，再由你决定分享到哪里。只在已添加规则的应用中工作，不会上传你的链接或屏幕内容。</string>
+    <string name="tile_open_app">打开勿追踪</string>
+    <string name="tile_clipboard">剪贴板净链</string>
+    <string name="tile_qr_image">图片二维码净化</string>
 </resources>

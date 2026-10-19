@@ -59,7 +59,7 @@
     </td>
     <td width="50%">
       <h3>🔄 4. 多渠道分享与剪贴板极速识别</h3>
-      不仅支持无障碍悬浮触发，还支持通过系统<b>「发送到 / 分享到」</b>菜单调用；亦可打开应用后点击<b>「读取剪贴板」</b>解析净化，进入应用时不会自动读取剪贴板。
+      不仅支持无障碍悬浮触发，还支持通过系统<b>「发送到 / 分享到」</b>菜单调用；亦可打开应用后点击<b>「读取剪贴板」</b>解析净化，普通打开应用时不会自动读取剪贴板；点击「剪贴板净链」快捷磁贴会进入应用并读取、解析剪贴板。
     </td>
   </tr>
 </table>
@@ -85,11 +85,22 @@
 
 ## 📦 版本对比 (Minimal vs Full)
 
-项目提供两个针对不同需求的构建风味（Flavors）：
+项目通过 `edition`（`minimal` / `full`）和 `accessibility`（`withAccessibility` / `withoutAccessibility`）两个独立维度生成四种安装包，包名相同，可用同一签名覆盖切换：
+
+| 构建组合 | 图片二维码净化与磁贴 | 无障碍自动复制与悬浮分享 |
+| :--- | :---: | :---: |
+| `minimalWithAccessibility` | ❌ | ✅ |
+| `minimalWithoutAccessibility` | ❌ | ❌ |
+| `fullWithAccessibility` | ✅ | ✅ |
+| `fullWithoutAccessibility` | ✅ | ❌ |
+
+`withoutAccessibility` 不声明无障碍服务、开机恢复接收器及开机权限，也不显示相关设置与首次引导步骤；链接净化、系统分享、剪贴板、微信/QQ 分享均可使用。设置 → 应用更新可分别选择版本和无障碍能力，支持同版本切换，禁止降级。
+
+以下为 Minimal/Full 能力对比：
 
 | 特性 / 能力 | Minimal (精简版) | Full (全功能版 - 推荐) |
 | :--- | :---: | :---: |
-| **无障碍自动化复制与悬浮分享** | ✅ | ✅ |
+| **无障碍自动化复制与悬浮分享** | 仅 withAccessibility | 仅 withAccessibility |
 | **系统分享接管 & 手动读取剪贴板净化** | ✅ | ✅ |
 | **微信 / QQ 官方卡片级二次分享** | ✅ | ✅ |
 | **短链安全展开与域名重定向** | ✅ | ✅ |
@@ -133,7 +144,7 @@ flowchart LR
 ### 1. 安装与初始化
 1. 从 [Releases 页面](https://github.com/StopTrackingMe-Dev/StopTrackingMe/releases) 下载最新版本的 APK（推荐下载 **Full** 版本）。
 2. 打开应用，根据引导完成基础设置：
-   - **开启无障碍服务**：用于在分享时精准查找并自动点击“复制链接”。
+   - **开启无障碍服务**（仅 withAccessibility）：用于在分享时精准查找并自动点击“复制链接”。
    - **配置电池无限制**：避免系统后台休眠无障碍服务，保证即点即响应。
    - **授予悬浮窗权限**（可选）：启用悬浮窗模式，享受免切屏分享体验。
 
@@ -144,7 +155,12 @@ flowchart LR
 ### 3. 日常分享使用
 - **方式 A（悬浮快捷）**：在支持的 App（如各大资讯、视频、社交 App）中打开分享界面，点击出现的悬浮净化按钮，即可在弹出的面板中一键二次分享。
 - **方式 B（系统分享）**：在任意 App 分享时，选择“净链分享助手 / StopTrackingMe”。
-- **方式 C（图片净链）**：在首页点击“选择二维码图片”，处理完毕后一键导出洁净海报。
+- **方式 C（图片净链，仅 Full）**：在首页点击“选择二维码图片”，处理完毕后一键导出洁净海报。
+- **方式 D（快捷磁贴）**：下拉系统快捷设置，点击编辑，将以下磁贴拖入面板：
+  - **打开勿追踪**：进入应用首页。
+  - **剪贴板净链**：进入应用后自动读取剪贴板，并解析、净化链接。
+  - **图片二维码净化**：进入应用并直接打开图片选择器，仅 Full 提供。
+  - 锁屏时先解锁；首次使用先完成引导，再继续磁贴操作。
 
 ---
 
@@ -172,14 +188,22 @@ flowchart LR
 git clone https://github.com/StopTrackingMe-Dev/StopTrackingMe.git
 cd StopTrackingMe
 
-# 编译 Minimal 版本 Debug APK
-./gradlew assembleMinimalDebug
+# 打包四种组合（各生成 ABI 包和 Universal 包）
+./gradlew assembleRelease
 
-# 编译 Full 版本 Release APK
-./gradlew assembleFullRelease
+# 单独构建某种组合
+./gradlew assembleMinimalWithAccessibilityDebug
+./gradlew assembleMinimalWithoutAccessibilityRelease
+./gradlew assembleFullWithAccessibilityRelease
+./gradlew assembleFullWithoutAccessibilityRelease
+
+# 四种组合的单元测试
+./gradlew testFullWithAccessibilityDebugUnitTest testFullWithoutAccessibilityDebugUnitTest testMinimalWithAccessibilityDebugUnitTest testMinimalWithoutAccessibilityDebugUnitTest
 ```
 
-产物输出路径：`app/build/outputs/apk/`
+产物输出路径：`app/build/outputs/apk/<edition><Accessibility>/<buildType>/`，例如 `app/build/outputs/apk/fullWithoutAccessibility/release/app-full-withoutAccessibility-universal-release-unsigned.apk`。发布时保持构建文件名，镜像使用相同文件名；四种组合须使用同一发布证书签名。
+
+应用更新清单 `latest.json` 的 `assets` 应同时提供四种组合，可从构建文件名识别版本与无障碍能力。显式 `variant` 支持 `minimal`、`full`（含无障碍，兼容旧清单）、`minimal-without-accessibility`、`full-without-accessibility`，也支持 `full-with-accessibility` 等含无障碍别名。每个 APK 仍需提供 SHA-256；版本与文件名不一致会拒绝安装，缺少目标组合时不会改下其他版本。
 
 ---
 

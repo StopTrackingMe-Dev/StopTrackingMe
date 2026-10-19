@@ -20,7 +20,8 @@ object ServiceStatus {
     }
 
     fun isEnabled(context: Context): Boolean {
-        val expected = ComponentName(context, ShareAccessibilityService::class.java)
+        if (!BuildConfig.HAS_ACCESSIBILITY) return false
+        val expected = ComponentName(context, "app.stoptrackingme.ShareAccessibilityService")
         return context.getSystemService(AccessibilityManager::class.java)
             .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { service ->

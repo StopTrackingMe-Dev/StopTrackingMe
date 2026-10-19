@@ -51,14 +51,15 @@ internal fun AppUpdateCard(
         title = "应用更新",
         subtitle = "当前：${currentVariant.displayName} $currentVersionName",
     ) {
-        if (currentVariant == AppVariant.MINIMAL) {
+        if (!currentVariant.hasQrImages) {
             HintText("完整版才支持二维码净化")
         }
         ChoiceGroup {
-            AppVariant.entries.forEach { variant ->
+            listOf("minimal", "full").forEach { edition ->
+                val variant = targetVariant.withEdition(edition)
                 ChoicePill(
                     icon = null,
-                    label = variant.displayName,
+                    label = if (variant.hasQrImages) "Full 完整版" else "Minimal 精简版",
                     selected = variant == targetVariant,
                     enabled = !working,
                     onClick = { onSelectVariant(variant) },
@@ -66,6 +67,20 @@ internal fun AppUpdateCard(
                 )
             }
         }
+        ChoiceGroup {
+            listOf(true, false).forEach { enabled ->
+                val variant = targetVariant.withAccessibility(enabled)
+                ChoicePill(
+                    icon = null,
+                    label = if (enabled) "含无障碍" else "不含无障碍",
+                    selected = variant == targetVariant,
+                    enabled = !working,
+                    onClick = { onSelectVariant(variant) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        HintText(if (targetVariant.hasAccessibility) "支持无障碍自动复制与悬浮分享" else "不含无障碍服务，使用系统分享、剪贴板及磁贴净化")
         when (status) {
             AppUpdateStatus.Idle -> Unit
             AppUpdateStatus.Checking -> ProgressMessage("正在检查更新…")
@@ -159,7 +174,7 @@ internal fun UpdateAvailableDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (release.variant == AppVariant.FULL) {
+                    if (release.variant.hasQrImages) {
                         "将安装${release.variant.displayName}（包含二维码图片净化）。"
                     } else {
                         "将安装${release.variant.displayName}（不含二维码图片净化）。"
