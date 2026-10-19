@@ -52,12 +52,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -94,6 +101,7 @@ import app.stoptrackingme.ui.components.QuickActionCard
 import app.stoptrackingme.ui.components.SectionCard
 import app.stoptrackingme.ui.components.StatusChip
 import app.stoptrackingme.ui.components.StepRow
+import app.stoptrackingme.ui.theme.LinkBlue
 import app.stoptrackingme.ui.theme.StopTrackingTheme
 import app.stoptrackingme.update.AppUpdateCard
 import app.stoptrackingme.update.AppUpdateCache
@@ -571,6 +579,10 @@ class MainActivity : ComponentActivity() {
                             onOpenOriginal = {
                                 pendingUnsupportedUrl = null
                                 openExternalLink(url)
+                            },
+                            onOpenIssues = {
+                                pendingUnsupportedUrl = null
+                                openExternalLink(RULES_ISSUES_URL, "提交 Issue")
                             },
                         )
                     }
@@ -1284,6 +1296,7 @@ class MainActivity : ComponentActivity() {
             ActivityResultContracts.PickVisualMedia().parseResult(resultCode, data)
 
         private const val PUBLIC_RULES_URL = "https://stoptracking.me/rules"
+        internal const val RULES_ISSUES_URL = "https://github.com/StopTrackingMe-Dev/rules/issues"
         private const val SOURCE_CLIPBOARD = "manual.clipboard"
         private const val SOURCE_SYSTEM_SHARE = "manual.system-share"
         private const val SOURCE_WEB_INTENT = "manual.web-intent"
@@ -1364,17 +1377,43 @@ private sealed interface PendingRuleRemoval {
     ) : PendingRuleRemoval
 }
 
+internal fun unsupportedLinkDialogMessage(
+    host: String,
+    onOpenIssues: () -> Unit,
+) = buildAnnotatedString {
+    append("$host 暂无规则，链接会保持原样。你可以在 ")
+    withLink(
+        LinkAnnotation.Clickable(
+            tag = "rules_issues",
+            styles = TextLinkStyles(
+                style = SpanStyle(
+                    color = LinkBlue,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            ),
+            linkInteractionListener = { onOpenIssues() },
+        ),
+    ) {
+        append(MainActivity.RULES_ISSUES_URL)
+    }
+    append(" 提交 issue。")
+}
+
 @androidx.compose.runtime.Composable
 private fun UnsupportedLinkDialog(
     host: String,
     onDismiss: () -> Unit,
     onOpenOriginal: () -> Unit,
+    onOpenIssues: () -> Unit,
 ) {
+    val message = remember(host, onOpenIssues) {
+        unsupportedLinkDialogMessage(host, onOpenIssues)
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(painterResource(R.drawable.ic_info), contentDescription = null) },
         title = { Text("暂不支持这个网站") },
-        text = { Text("$host 暂无规则，链接会保持原样。") },
+        text = { Text(message) },
         confirmButton = {
             Button(onClick = onOpenOriginal) { Text("用其他应用打开") }
         },

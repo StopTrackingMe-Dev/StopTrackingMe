@@ -40,3 +40,5 @@ val SurfaceContainerHighDark = Color(0xFF252B2A)
 // Accent colors for share destinations (kept generic, no brand marks).
 val WeChatGreen = Color(0xFF07C160)
 val QQBlue = Color(0xFF1E9BF0)
+val LinkBlue = Color(0xFF1A73E8)
+
