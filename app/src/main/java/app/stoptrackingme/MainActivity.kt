@@ -147,7 +147,6 @@ class MainActivity : ComponentActivity() {
     private var cacheActionBusy by mutableStateOf(false)
     private var pendingInstallUpdate: DownloadedAppUpdate? = null
     private var pendingStartupIntent: Intent? = null
-    private var autoReadClipboardOnFocus = false
 
     private val importRuleDocument =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -204,10 +203,6 @@ class MainActivity : ComponentActivity() {
             ?.takeIf { it.containsKey(STATE_FIRST_RUN_GUIDE_VISIBLE) }
             ?.getBoolean(STATE_FIRST_RUN_GUIDE_VISIBLE)
             ?: !FirstRunPreferences.isSetupGuideCompleted(this)
-        autoReadClipboardOnFocus = savedInstanceState
-            ?.takeIf { it.containsKey(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS) }
-            ?.getBoolean(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS)
-            ?: (intent.action == Intent.ACTION_MAIN)
         enableEdgeToEdge()
         setContent {
             StopTrackingTheme {
@@ -245,8 +240,8 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 QuickActionCard(
                                     icon = R.drawable.ic_clipboard,
-                                    title = "净化剪贴板",
-                                    subtitle = "处理复制的链接",
+                                    title = "读取剪贴板",
+                                    subtitle = "净化复制的链接",
                                     enabled = !busy,
                                     onClick = ::readClipboard,
                                     modifier = Modifier.weight(1f),
@@ -575,7 +570,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_FIRST_RUN_GUIDE_VISIBLE, firstRunGuideVisible)
-        outState.putBoolean(STATE_AUTO_READ_CLIPBOARD_ON_FOCUS, autoReadClipboardOnFocus)
         super.onSaveInstanceState(outState)
     }
 
@@ -583,17 +577,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == Intent.ACTION_MAIN) {
-            autoReadClipboardOnFocus = true
             continueStartupActionsIfAllowed()
         } else {
-            autoReadClipboardOnFocus = false
             handleIncomingIntentWhenAllowed(intent)
         }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) continueStartupActionsIfAllowed()
     }
 
     override fun onStart() {
@@ -668,11 +655,6 @@ class MainActivity : ComponentActivity() {
         pendingStartupIntent?.let { pending ->
             pendingStartupIntent = null
             handleIncomingIntent(pending)
-            return
-        }
-        if (hasWindowFocus() && autoReadClipboardOnFocus) {
-            autoReadClipboardOnFocus = false
-            readClipboard(reportMissing = false)
         }
     }
 
@@ -780,8 +762,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun readClipboard(reportMissing: Boolean = true) {
-        autoReadClipboardOnFocus = false
+    private fun readClipboard() {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val clip = clipboard.primaryClip
         val value = if (clip != null && clip.itemCount > 0) {
@@ -789,7 +770,7 @@ class MainActivity : ComponentActivity() {
         } else {
             ""
         }
-        resolveLinkInput(value, SOURCE_CLIPBOARD, reportMissing)
+        resolveLinkInput(value, SOURCE_CLIPBOARD)
     }
 
     private fun openQrImage(uri: Uri) {
@@ -1261,8 +1242,6 @@ class MainActivity : ComponentActivity() {
         private const val SOURCE_CLIPBOARD = "manual.clipboard"
         private const val SOURCE_SYSTEM_SHARE = "manual.system-share"
         private const val SOURCE_WEB_INTENT = "manual.web-intent"
-        private const val STATE_AUTO_READ_CLIPBOARD_ON_FOCUS =
-            "main.auto_read_clipboard_on_focus"
         private const val STATE_FIRST_RUN_GUIDE_VISIBLE = "main.first_run_guide_visible"
     }
 }
