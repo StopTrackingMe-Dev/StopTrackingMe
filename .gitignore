@@ -3,6 +3,12 @@
 .kotlin/
 build/
 app/release/
+app/full/
+app/fullWithAccessibility/
+app/fullWithoutAccessibility/
+app/minimal/
+app/minimalWithAccessibility/
+app/minimalWithoutAccessibility
 
 # Local Android SDK and IDE state
 local.properties
@@ -40,3 +46,4 @@ google-services.json
 .DS_Store
 Thumbs.db
 desktop.ini
+.tmp/

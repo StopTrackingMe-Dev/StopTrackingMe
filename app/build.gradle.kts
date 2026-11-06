@@ -25,8 +25,8 @@ android {
         applicationId = "app.stoptrackingme"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.3.0-beta"
+        versionCode = 12
+        versionName = "0.3.1"
 
         manifestPlaceholders["qqAppId"] = qqAppId
         buildConfigField("String", "QQ_APP_ID", "\"$qqAppId\"")

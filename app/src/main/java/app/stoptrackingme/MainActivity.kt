@@ -269,7 +269,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
-                            HintText("也可从系统分享发送到本应用")
+                            HintText("也可从系统分享发送到本应用，或磁贴快速进入")
                         }
 
                         MainSection.RULES -> MainPage(modifier = Modifier.padding(padding)) {
