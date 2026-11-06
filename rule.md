@@ -144,6 +144,7 @@ JSON 会先处理一次反斜杠，所以正则中的 `\s`、`\.` 应分别写�
 | `target` | 对象 | 是 | 目标 Android 包名和版本范围。 |
 | `shareTriggerSelectors` | 选择器数组 | 是 | 识别用户点击分享入口。 |
 | `sharePanelFingerprint` | 选择器数组 | 是 | 确认当前窗口确实是目标分享面板。 |
+| `sharePanelFingerprintAlternatives` | 选择器数组的数组 | 否 | 额外的完整指纹组；任意一组完整命中即可确认面板。1～7 组，每组 1～24 项。 |
 | `copyLinkScrollAnchorSelectors` | 选择器数组 | 否 | 找不到复制入口时，用于定位一次滚动的锚点；省略表示不滚动。 |
 | `copyLinkSelectors` | 选择器数组 | 是 | 定位“复制链接”节点。 |
 | `copyTriggerMode` | 枚举字符串 | 否 | 默认 `AUTOMATIC`。 |
@@ -274,6 +275,25 @@ AND (textRegex 命中 OR descriptionRegex 命中)
 | `copyLinkSelectors` | 任意一项命中即可 | 广度优先查找首个命中的标签，再向上寻找可点击且启用的节点，只点击一次。 |
 
 `sharePanelFingerprint` 的各项不要求由不同节点满足；同一节点理论上可以同时满足多项。因此编写时应主动选取两个或更多真正独立、稳定的面板特征，降低普通页面被误判为分享面板的风险。
+
+`sharePanelFingerprint` 保留为原有的必填指纹组。可用 `sharePanelFingerprintAlternatives` 增加其他布局：组内是 AND，原有组与各备选组之间是 OR，不能将不同组的部分命中拼在一起。省略该字段时行为与旧规则完全一致。悬浮窗定位只使用实际完整命中的那一组。
+
+~~~json
+"sharePanelFingerprint": [
+  { "textRegex": "^分享$" },
+  { "resourceId": "recycler", "className": "android.widget.LinearLayout" },
+  { "resourceId": "recycler", "className": "androidx.recyclerview.widget.RecyclerView" }
+],
+"sharePanelFingerprintAlternatives": [
+  [
+    { "textRegex": "^分享$", "className": "android.widget.TextView" },
+    { "className": "androidx.compose.ui.platform.ComposeView" },
+    { "descriptionRegex": "^关闭$", "className": "android.widget.ImageView", "clickable": true }
+  ]
+]
+~~~
+
+此字段需要支持备选指纹的新版 StopTracking。旧客户端会按未知字段拒绝整份订阅，发布包含该字段的规则前应先发布并更新客户端。
 
 ### 6.2 自动化相关字段
 

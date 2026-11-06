@@ -59,6 +59,7 @@ class RuleParser {
             "target",
             "shareTriggerSelectors",
             "sharePanelFingerprint",
+            "sharePanelFingerprintAlternatives",
             "copyLinkScrollAnchorSelectors",
             "copyLinkSelectors",
             "copyTriggerMode",
@@ -79,6 +80,15 @@ class RuleParser {
         val target = parseTarget(json.requiredObject("target"))
         val triggers = parseSelectors(json.requiredArray("shareTriggerSelectors"), "分享触发选择器")
         val fingerprint = parseSelectors(json.requiredArray("sharePanelFingerprint"), "分享面板指纹")
+        val fingerprintAlternatives = json.get("sharePanelFingerprintAlternatives")?.let { element ->
+            if (!element.isJsonArray || element.asJsonArray.size() !in 1..MAX_FINGERPRINT_ALTERNATIVES) {
+                throw RuleValidationException("分享面板备选指纹必须包含 1 到 $MAX_FINGERPRINT_ALTERNATIVES 组")
+            }
+            element.asJsonArray.mapIndexed { index, group ->
+                if (!group.isJsonArray) throw RuleValidationException("分享面板备选指纹[$index] 必须是数组")
+                parseSelectors(group.asJsonArray, "分享面板备选指纹[$index]")
+            }
+        }.orEmpty()
         val scrollAnchors = json.get("copyLinkScrollAnchorSelectors")?.let { element ->
             if (!element.isJsonArray) {
                 throw RuleValidationException("复制链接滚动锚点必须是数组")
@@ -114,6 +124,7 @@ class RuleParser {
             target = target,
             shareTriggerSelectors = triggers,
             sharePanelFingerprint = fingerprint,
+            sharePanelFingerprintAlternatives = fingerprintAlternatives,
             copyLinkScrollAnchorSelectors = scrollAnchors,
             copyLinkSelectors = copySelectors,
             copyTriggerMode = copyTriggerMode,
@@ -578,6 +589,7 @@ class RuleParser {
         private const val SUPPORTED_SCHEMA_VERSION = 1
         private const val MAX_RULES_PER_BUNDLE = 32
         private const val MAX_SELECTORS_PER_GROUP = 24
+        private const val MAX_FINGERPRINT_ALTERNATIVES = 7
         private const val MAX_CLICKABLE_PARENT_DEPTH = 8
         private const val MAX_REDIRECTS = 5
         private const val MAX_HOSTS = 32

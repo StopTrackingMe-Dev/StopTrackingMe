@@ -31,6 +31,23 @@ object AccessibilityTree {
         return false
     }
 
+    fun findCompleteFingerprint(
+        root: AccessibilityNodeInfo,
+        fingerprints: List<List<NodeSelector>>,
+    ): List<NodeSelector>? {
+        val nodes = ArrayList<AccessibilityNodeView>()
+        traverse(root) { node ->
+            nodes += node.asView()
+            false
+        }
+        return SelectorMatcher.findCompleteFingerprint(nodes, fingerprints)
+    }
+
+    fun hasAnyCompleteFingerprint(
+        root: AccessibilityNodeInfo,
+        fingerprints: List<List<NodeSelector>>,
+    ): Boolean = findCompleteFingerprint(root, fingerprints) != null
+
     fun hasCompleteFingerprint(
         root: AccessibilityNodeInfo,
         selectors: List<NodeSelector>,

@@ -128,7 +128,7 @@ data class AppRule(
     val source: RuleSource,
     val target: AppTarget,
     val shareTriggerSelectors: List<NodeSelector>,
-    /** Every selector in this list must be found before fallback automation can start. */
+    /** Primary AND group; a complete alternative group can identify the panel instead. */
     val sharePanelFingerprint: List<NodeSelector>,
     /** Optional visible labels whose scrollable ancestor is advanced once to reveal copy-link. */
     val copyLinkScrollAnchorSelectors: List<NodeSelector>,
@@ -141,7 +141,12 @@ data class AppRule(
     val redirectPolicy: RedirectPolicy,
     val sharePreview: SharePreviewRule?,
     val cleaningPolicy: CleaningPolicy,
-)
+    /** Alternative complete fingerprints; selectors within each group are AND, groups are OR. */
+    val sharePanelFingerprintAlternatives: List<List<NodeSelector>> = emptyList(),
+) {
+    val sharePanelFingerprints: List<List<NodeSelector>>
+        get() = listOf(sharePanelFingerprint) + sharePanelFingerprintAlternatives
+}
 
 data class InstalledRule(
     val key: String,

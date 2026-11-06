@@ -8,6 +8,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.w3c.dom.Element
+import javax.xml.parsers.DocumentBuilderFactory
 
 class BilibiliRuleTest {
     private val rule = TestFixtures.builtInRule("bilibili")
@@ -15,7 +17,7 @@ class BilibiliRuleTest {
     @Test
     fun copyWaitsForExplicitOverlayConfirmation() {
         assertEquals("tv.danmaku.bili", rule.target.packageName)
-        assertEquals(7, rule.version)
+        assertEquals(8, rule.version)
         assertEquals(CopyTriggerMode.USER_CONFIRMATION, rule.copyTriggerMode)
         assertTrue(
             rule.sharePanelFingerprint.any {
@@ -86,10 +88,64 @@ class BilibiliRuleTest {
         assertTrue(matchesCompleteFingerprint(sharePanelNodes))
     }
 
-    private fun matchesCompleteFingerprint(nodes: List<FakeNode>): Boolean =
-        rule.sharePanelFingerprint.all { selector ->
-            nodes.any { node -> SelectorMatcher.matches(node, selector) }
+    @Test
+    fun capturedComposePanelsMatchOnlyTheAlternativeGroup() {
+        for (name in listOf("bilibili-compose-initial.xml", "bilibili-compose-scrolled.xml")) {
+            val nodes = capturedNodes(name).map { it.second }
+            assertEquals(
+                rule.sharePanelFingerprintAlternatives.single(),
+                SelectorMatcher.findCompleteFingerprint(nodes, rule.sharePanelFingerprints),
+            )
         }
+    }
+
+    @Test
+    fun capturedDetailPageDoesNotMatchAnyGroup() {
+        val nodes = capturedNodes("bilibili-detail.xml").map { it.second }
+        assertFalse(matchesCompleteFingerprint(nodes))
+    }
+
+    @Test
+    fun composeCopyDescriptionHasClickableParentAndChannelsHaveScrollableAncestor() {
+        for (name in listOf("bilibili-compose-initial.xml", "bilibili-compose-scrolled.xml")) {
+            val nodes = capturedNodes(name)
+            val copyLabels = nodes.filter { (_, node) ->
+                rule.copyLinkSelectors.any { SelectorMatcher.matches(node, it) }
+            }
+            assertTrue(copyLabels.isNotEmpty())
+            assertTrue(copyLabels.any { (element, _) ->
+                ancestors(element).any { it.getAttribute("clickable") == "true" }
+            })
+            assertTrue(nodes.any { (element, node) ->
+                rule.copyLinkScrollAnchorSelectors.any { SelectorMatcher.matches(node, it) } &&
+                    ancestors(element).any { it.getAttribute("scrollable") == "true" }
+            })
+        }
+    }
+
+    private fun capturedNodes(name: String): List<Pair<Element, FakeNode>> {
+        val document = javaClass.getResourceAsStream("/bilibili/$name")!!.use {
+            DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it)
+        }
+        val nodes = document.getElementsByTagName("node")
+        return (0 until nodes.length).map { index ->
+            val element = nodes.item(index) as Element
+            element to FakeNode(
+                resourceId = element.getAttribute("resource-id"),
+                text = element.getAttribute("text"),
+                contentDescription = element.getAttribute("content-desc"),
+                className = element.getAttribute("class"),
+                isClickable = element.getAttribute("clickable") == "true",
+            )
+        }
+    }
+
+    private fun ancestors(element: Element): List<Element> =
+        generateSequence(element) { it.parentNode as? Element }
+            .take(rule.maxClickableParentDepth + 1).toList()
+
+    private fun matchesCompleteFingerprint(nodes: List<FakeNode>): Boolean =
+        SelectorMatcher.findCompleteFingerprint(nodes, rule.sharePanelFingerprints) != null
 
     private data class FakeNode(
         override val resourceId: String = "",

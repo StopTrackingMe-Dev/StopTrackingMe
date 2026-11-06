@@ -12,6 +12,14 @@ interface AccessibilityNodeView {
 }
 
 object SelectorMatcher {
+    /** Returns only a fully satisfied group, so partial alternatives cannot be combined. */
+    fun findCompleteFingerprint(
+        nodes: List<AccessibilityNodeView>,
+        fingerprints: List<List<NodeSelector>>,
+    ): List<NodeSelector>? = fingerprints.firstOrNull { group ->
+        group.isNotEmpty() && group.all { selector -> nodes.any { matches(it, selector) } }
+    }
+
     fun matches(node: AccessibilityNodeView, selector: NodeSelector): Boolean {
         if (selector.resourceId != null &&
             node.resourceId != selector.resourceId &&

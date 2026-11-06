@@ -40,6 +40,56 @@ class RuleParserTest {
     }
 
     @Test
+    fun omittedFingerprintAlternativesPreserveLegacyGroup() {
+        val bytes = mutate { root ->
+            root.getAsJsonArray("rules")[0].asJsonObject.remove("sharePanelFingerprintAlternatives")
+        }
+        val rule = parser.parse(bytes).rules.single()
+        assertTrue(rule.sharePanelFingerprintAlternatives.isEmpty())
+        assertEquals(listOf(rule.sharePanelFingerprint), rule.sharePanelFingerprints)
+    }
+
+    @Test
+    fun parsesAlternativeFingerprintGroups() {
+        val rule = parser.parse(TestFixtures.builtInRuleBytes()).rules.single()
+        assertEquals(1, rule.sharePanelFingerprintAlternatives.size)
+        assertEquals(2, rule.sharePanelFingerprints.size)
+        assertEquals("androidx.compose.ui.platform.ComposeView", rule.sharePanelFingerprintAlternatives[0][1].className)
+    }
+
+    @Test
+    fun rejectsMalformedOrUnboundedFingerprintAlternatives() {
+        val invalid = listOf(
+            "null", "{}", "[]", "[null]", "[{}]", "[[]]", "[[{}]]",
+            "[[{\"clickable\":true}]]",
+            "[[{\"textRegex\":\"(?=share)\"}]]",
+            "[[{\"script\":\"click()\"}]]",
+            (1..8).joinToString(prefix = "[", postfix = "]") { "[{\"textRegex\":\"share\"}]" },
+            (1..25).joinToString(prefix = "[[", postfix = "]]") { "{\"textRegex\":\"share\"}" },
+        )
+        for (value in invalid) {
+            val bytes = mutate { root ->
+                root.getAsJsonArray("rules")[0].asJsonObject.add(
+                    "sharePanelFingerprintAlternatives", JsonParser.parseString(value),
+                )
+            }
+            assertThrows(value, RuleValidationException::class.java) { parser.parse(bytes) }
+        }
+    }
+
+    @Test
+    fun acceptsMaximumFingerprintAlternativeCountAndGroupSize() {
+        val group = (1..24).joinToString(prefix = "[", postfix = "]") { "{\"textRegex\":\"share\"}" }
+        val bytes = mutate { root ->
+            root.getAsJsonArray("rules")[0].asJsonObject.add(
+                "sharePanelFingerprintAlternatives",
+                JsonParser.parseString((1..7).joinToString(prefix = "[", postfix = "]") { group }),
+            )
+        }
+        assertEquals(7, parser.parse(bytes).rules.single().sharePanelFingerprintAlternatives.size)
+    }
+
+    @Test
     fun rejectsDangerousCapabilityField() {
         val bytes = mutate { root ->
             root.getAsJsonArray("rules")[0].asJsonObject.addProperty("script", "click()")

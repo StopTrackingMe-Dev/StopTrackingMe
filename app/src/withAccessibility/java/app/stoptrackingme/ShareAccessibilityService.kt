@@ -283,9 +283,9 @@ class ShareAccessibilityService : AccessibilityService() {
             }
 
             val root = rootInActiveWindow ?: return
-            val fingerprintPresent = AccessibilityTree.hasCompleteFingerprint(
+            val fingerprintPresent = AccessibilityTree.hasAnyCompleteFingerprint(
                 root,
-                installed.rule.sharePanelFingerprint,
+                installed.rule.sharePanelFingerprints,
             )
             if (!fingerprintPresent) {
                 fallbackPanelLatch.remove(eventPackage)
@@ -517,9 +517,9 @@ class ShareAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != current.sourcePackage) return
         updateOverlayGeometry(root, installed)
-        if (AccessibilityTree.hasCompleteFingerprint(
+        if (AccessibilityTree.hasAnyCompleteFingerprint(
                 root,
-                installed.rule.sharePanelFingerprint,
+                installed.rule.sharePanelFingerprints,
             )
         ) {
             awaitingPanelSeenSessionId = sessionId
@@ -543,9 +543,9 @@ class ShareAccessibilityService : AccessibilityService() {
             cancelTask(sessionId, "已离开原应用，本次净化已取消")
             return
         }
-        if (!AccessibilityTree.hasCompleteFingerprint(
+        if (!AccessibilityTree.hasAnyCompleteFingerprint(
                 root,
-                installed.rule.sharePanelFingerprint,
+                installed.rule.sharePanelFingerprints,
             )
         ) {
             if (awaitingPanelSeenSessionId == sessionId) {
@@ -982,16 +982,12 @@ class ShareAccessibilityService : AccessibilityService() {
         val windowBounds = Rect()
         root.window?.getBoundsInScreen(windowBounds)
         if (windowBounds.isEmpty) root.getBoundsInScreen(windowBounds)
-        val fingerprintBounds = AccessibilityTree.findMatchingBounds(
+        val fingerprint = AccessibilityTree.findCompleteFingerprint(
             root,
-            installed.rule.sharePanelFingerprint,
+            installed.rule.sharePanelFingerprints,
         )
-        val panelTop = if (
-            AccessibilityTree.hasCompleteFingerprint(root, installed.rule.sharePanelFingerprint)
-        ) {
-            fingerprintBounds.minOfOrNull(Rect::top)
-        } else {
-            null
+        val panelTop = fingerprint?.let {
+            AccessibilityTree.findMatchingBounds(root, it).minOfOrNull(Rect::top)
         }
         val clickableBounds = AccessibilityTree.collectClickableBounds(root)
             .filter { bounds -> panelTop == null || bounds.bottom >= panelTop }
