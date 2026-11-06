@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
     private var remoteUrl by mutableStateOf("")
     private var operationMessage by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
+    private var refreshingSubscription by mutableStateOf<String?>(null)
     private var remotePreview by mutableStateOf<RemoteRulePreview?>(null)
     private var pendingRuleRemoval by mutableStateOf<PendingRuleRemoval?>(null)
     private var pendingUnsupportedUrl by mutableStateOf<String?>(null)
@@ -323,6 +324,10 @@ class MainActivity : ComponentActivity() {
                                         canMoveUp = index > 0,
                                         canMoveDown = index < catalog.sources.lastIndex,
                                         enabled = !busy,
+                                        refreshing = refreshingSubscription == source.reference,
+                                        onRefresh = if (local) null else {
+                                            { refreshSubscription(source.reference) }
+                                        },
                                         onMove = { delta -> moveRuleSource(source, delta) },
                                         removeLabel = if (local) "删除" else "取消订阅",
                                         onRemove = {
@@ -1039,6 +1044,28 @@ class MainActivity : ComponentActivity() {
                     },
                     onFailure = { "添加订阅失败：${displayError(it)}" },
                 )
+            }
+        }
+    }
+
+    private fun refreshSubscription(url: String) {
+        if (busy) return
+        busy = true
+        refreshingSubscription = url
+        operationMessage = null
+        lifecycleScope.launch {
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshRemote(url) }
+                }
+                reloadCatalog()
+                operationMessage = outcome.fold(
+                    onSuccess = { "已刷新 ${displayHost(url)}：${it.rules.size} 条规则" },
+                    onFailure = { "订阅刷新失败，将继续使用旧版本：${displayError(it)}" },
+                )
+            } finally {
+                refreshingSubscription = null
+                busy = false
             }
         }
     }
@@ -2173,6 +2200,8 @@ private fun RuleSourceRow(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     enabled: Boolean,
+    refreshing: Boolean,
+    onRefresh: (() -> Unit)?,
     onMove: (Int) -> Unit,
     removeLabel: String,
     onRemove: () -> Unit,
@@ -2197,6 +2226,18 @@ private fun RuleSourceRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 HintText(subtitle)
+                if (onRefresh != null) {
+                    TextButton(onClick = onRefresh, enabled = enabled) {
+                        if (refreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(if (refreshing) "刷新中…" else "刷新订阅")
+                    }
+                }
             }
             if (showOrder) {
                 IconButton(onClick = { onMove(-1) }, enabled = enabled && canMoveUp) {
