@@ -2226,16 +2226,19 @@ private fun RuleSourceRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 HintText(subtitle)
-                if (onRefresh != null) {
-                    TextButton(onClick = onRefresh, enabled = enabled) {
-                        if (refreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text(if (refreshing) "刷新中…" else "刷新订阅")
+            }
+            if (onRefresh != null) {
+                IconButton(onClick = onRefresh, enabled = enabled) {
+                    if (refreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            painterResource(R.drawable.ic_refresh),
+                            contentDescription = "刷新订阅",
+                        )
                     }
                 }
             }
